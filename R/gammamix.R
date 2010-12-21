@@ -130,6 +130,18 @@ normal.bg <- function(object, channel=NULL, channels=c('Cy3','Cy5')) { # {{{
   return(colMeans(negs(object, channel), na.rm=T))
 } # }}}
 
+gamma.allelic <- function(object, channel=NULL, channels=c('Cy3','Cy5')) { # {{{
+  if(is.null(channel)) {
+    perchannel <- lapply(channels, function(x) gamma.fg(object, x))
+    names(perchannel) <- channels
+    return(perchannel)
+  }
+  stop('allelicity has not been correctly implemented yet')
+
+  fn <- match.fun(paste(channel,allele,sep='.'))
+  return(apply(fn(object), 2, function(z) gamma.mle(pmax(z,1))))
+} # }}}
+
 gamma.gamma.signal <- function(object, channel=NULL, allele=NULL, channels=c('Cy3','Cy5')) { # {{{
   stop('Gamma-Gamma convolution is not fully implemented yet')
   if(is.null(channel)) lapply(channels, function(x) gamma.bg.mode(object,x))
