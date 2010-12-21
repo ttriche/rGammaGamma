@@ -1,0 +1,2 @@
+This is a small package I wrote to make computing the conditional expectation
+of one random variable in a convolution of Gamma RVs tractable.

@@ -1,3 +1,5 @@
+require('gsl') # for hyperg_1F1
+
 plot.intensities <- function(object, samples=NULL, bybase=T) { # {{{
   colrs <- c(A='red',C='green',T='red')
   if(is.null(samples)) samples <- 1:dim(object)[2]
@@ -142,9 +144,42 @@ gamma.allelic <- function(object, channel=NULL, channels=c('Cy3','Cy5')) { # {{{
   return(apply(fn(object), 2, function(z) gamma.mle(pmax(z,1))))
 } # }}}
 
+# FIXME: this needs to use arbitrary-precision integration to work uniformly
+gamma.gamma.conditional <- function(params, total) { # {{{
+  g <- params[1] # signal shape
+  d <- params[3] # bg shape
+  a <- params[2] # signal scale
+  b <- params[4] # bg scale
+  PrSignalGivenTotal <- function(x) {
+    # print(paste('Computing 1F1(',g,',',g+d,',', total*((1/b)-(1/a)), ')...'))
+    num <- exp(x*((1/b)-(1/a)))*(total**(1-g-d))*((total-x)**(d-1))*(x**(g-1))
+    den <- beta(g,d)*hyperg_1F1(g, g+d, total*((1/b)-(1/a)), strict=F)
+    # print(paste('f(',x,')=',num,'/',den,'=',num/den))
+    return(num*(1/den)*x)
+  }
+  integrate(PrSignalGivenTotal, 0, total)
+} # }}}
+
 gamma.gamma.signal <- function(object, channel=NULL, allele=NULL, channels=c('Cy3','Cy5')) { # {{{
   stop('Gamma-Gamma convolution is not fully implemented yet')
   if(is.null(channel)) lapply(channels, function(x) gamma.bg.mode(object,x))
+  mu <- par[1]
+  sigma <- exp(par[2])
+  sigma2 <- sigma * sigma
+  alpha <- exp(par[3])
+  if (alpha <= 0) 
+    stop("alpha must be positive")
+  if (sigma <= 0) 
+    stop("sigma must be positive")
+  mu.sf <- x - mu - sigma2/alpha
+  signal <- mu.sf + sigma2 * exp(dnorm(0, mean = mu.sf, sd = sigma, log = TRUE)-
+    pnorm(0, mean = mu.sf, sd = sigma, lower.tail = FALSE, log = TRUE))
+  o <- !is.na(signal)
+  if (any(signal[o] < 0)) {
+    warning("Limit of numerical accuracy reached with very low intensity or very high background:\nsetting adjusted intensities to small value")
+    signal[o] <- pmax(signal[o], 1e-06)
+  }
+  signal
 } # }}}
 
 gamma.normal.params <- function(tot, bg, robust=F, mme=F) { # {{{ 
