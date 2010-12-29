@@ -61,10 +61,8 @@ off.intensities <- function(object, samples=NULL, cutpoint=0.5, plots=F) { # {{{
 
 } # }}}
 
-# the so-called 'error function' (Abramowitz and Stegun 29.2.29)
+# the so-called 'error function' (Abramowitz and Stegun 29.2.29) & complement
 erf <- function(x) 2 * pnorm(x * sqrt(2)) - 1
-
-# and the so-called 'complementary error function'
 erfc <- function(x) 2 * pnorm(x * sqrt(2), lower = FALSE)
 
 # the canonical gamma MME -- turns out the MLE is actually fast and tractable!
@@ -144,20 +142,30 @@ gamma.allelic <- function(object, channel=NULL, channels=c('Cy3','Cy5')) { # {{{
   return(apply(fn(object), 2, function(z) gamma.mle(pmax(z,1))))
 } # }}}
 
-# FIXME: this needs to use arbitrary-precision integration to work uniformly
+# FIXME: only generate once per subset (signal/nonsignal, red/green) per chip
 gamma.gamma.conditional <- function(params, total) { # {{{
-  g <- params[1] # signal shape
-  d <- params[3] # bg shape
-  a <- params[2] # signal scale
-  b <- params[4] # bg scale
-  PrSignalGivenTotal <- function(x) {
-    # print(paste('Computing 1F1(',g,',',g+d,',', total*((1/b)-(1/a)), ')...'))
-    num <- exp(x*((1/b)-(1/a)))*(total**(1-g-d))*((total-x)**(d-1))*(x**(g-1))
-    den <- beta(g,d)*hyperg_1F1(g, g+d, total*((1/b)-(1/a)), strict=F)
-    # print(paste('f(',x,')=',num,'/',den,'=',num/den))
-    return(num*(1/den)*x)
+  
+  if( total > 100*sqrt( params[3] * (params[4]*params[4]) ) ) { # sd(bg)
+    return( total - (params[3]*params[4]) ) # total - mean(bg)
+  } else { 
+    g <- params[1] # signal shape
+    a <- params[2] # signal scale
+    d <- params[3] # bg shape
+    b <- params[4] # bg scale
+    return( 
+      integrate( 
+        function(x) {
+          # print(paste('Computing 1F1(',g,',',g+d,',',total*((1/b)-(1/a)),')'))
+          (exp(x*((1/b)-(1/a)))*(total**(1-g-d))*((total-x)**(d-1))*(x**(g-1)))*
+          (1/(beta(g,d)*hyperg_1F1(g, g+d, total*((1/b)-(1/a)), strict=F)))*x
+          # print(paste('f(',x,')=',num,'/',den,'=',num/den)) # = num*(1/den)*x
+        }, 
+        0, total
+      )$value # else will return a list with value, abs.error, subdivisions, ...
+    )
+    # integrate(PrSignalGivenTotal, 0, total)
   }
-  integrate(PrSignalGivenTotal, 0, total)
+
 } # }}}
 
 gamma.gamma.signal <- function(object, channel=NULL, allele=NULL, channels=c('Cy3','Cy5')) { # {{{
@@ -467,6 +475,4 @@ mcsv.normgamma <- function(object,channel=NULL,allele=NULL,channels=c('Cy3','Cy5
   }
 
 } # }}}
-
-# for comparison:
 
