@@ -1,81 +1,19 @@
-require('gsl') # for hyperg_1F1
+require('gsl') # for hyperg_1F1 in the conditional expectation of the signal
+require('methylumIDAT') # for the various utility functions, e.g. cy3(), cy5()
 
-plot.intensities <- function(object, samples=NULL, bybase=T) { # {{{
-  colrs <- c(A='red',C='green',T='red')
-  if(is.null(samples)) samples <- 1:dim(object)[2]
-  bases <- sapply(names(colrs), function(b) which(fData(object)$Next_Base==b))
-  meanb <- rowMeans(betas(object)[,samples], na.rm=T)
-  pct <- list(low=unlist(which(meanb<0.5)), high=unlist(which(meanb>=0.5)))
-  par(mfrow=c(ifelse(bybase,3,1),4))
+################################################################################
 
-  makeplots <- function(probes, pct, b='(any)', colr=NULL) {
-    for(avg in names(pct)) {
-      if( b=='(any)' ) colr <- ifelse(avg=='low','blue','orange')
-      hist( methylated(object)[probes %i% pct[[avg]], samples],
-            main=paste(avg, 's, base',b), xlim=c(0,2**16),
-            breaks=50, col=colr, xlab='intensity')
-    }
-    for(avg in names(pct)) {
-      if( b=='(any)' ) colr <- ifelse(avg=='low','blue','orange')
-      hist(unmethylated(object)[probes %i% pct[[avg]], samples],
-           main=paste(avg, 'beta Us, base',b), xlim=c(0,2**16),
-           breaks=50, col=colr, xlab='intensity')
-    }
-  }
-
-  if(bybase==T) 
-    for(b in names(bases)) makeplots(bases[[b]], pct, b, colrs[[b]])
-  else 
-    makeplots(1:dim(object)[1], pct)
-  
-} # }}}
-
-off.intensities <- function(object, samples=NULL, cutpoint=0.5, plots=F) { # {{{
-
-  if(is.null(samples)) samples <- 1:dim(object)[2]
-  colrs <- lapply(levels(fData(object)$Color_Channel), function(l) 
-                  which(fData(object)$Color_Channel==l))
-  names(colrs) <- levels(fData(object)$Color_Channel)
-  U <- apply(betas(object)[,samples], 2, function(x) which(x < cutpoint))
-  M <- apply(betas(object)[,samples], 2, function(x) which(x >= cutpoint))
-  negs <- list(Red=Cy5.negs(object)[,samples], Grn=Cy3.negs(object)[,samples])
-  norms <- list(Red=Cy5.norm(object)[,samples], Grn=Cy3.norm(object)[,samples])
-  castoffs <- lapply(colrs, function(chan) {
-    sapply(seq_along(samples), function(s) {
-      c( methylated(object)[ U[[s]] %i% chan , samples[s] ],
-         unmethylated(object)[ M[[s]] %i% chan , samples[s] ] )
-    })
-  })
-  population <- lapply(colrs, function(chan) {
-    sapply(seq_along(samples), function(s) {
-      c( methylated(object)[ M[[s]] %i% chan , samples[s] ],
-         unmethylated(object)[ U[[s]] %i% chan , samples[s] ] )
-    })
-  })
-
-  # Now fit a gamma-normal convolution to each of the above (?)
-  # It seems obvious to me that a mixture model with priors could do better
-  subsets <- list(population=population,castoffs=castoffs,negs=negs,norms=norms)
-  
-  return(subsets) # red castoffs, green castoffs, red genpop, green genpop
-
-} # }}}
-
-# the so-called 'error function' (Abramowitz and Stegun 29.2.29) & complement
-erf <- function(x) 2 * pnorm(x * sqrt(2)) - 1
-erfc <- function(x) 2 * pnorm(x * sqrt(2), lower = FALSE)
-
-# the canonical gamma MME -- turns out the MLE is actually fast and tractable!
+# the canonical gamma MME -- but the cMLE is lower variance and just as fast!
 gamma.mme <- function(x) { # {{{
   return(c(shape=(mean(as.matrix(x),na.rm=T)/sd(as.matrix(x),na.rm=T))^2,
            scale=var(as.matrix(x),na.rm=T)/mean(as.matrix(x),na.rm=T)))
 } # }}}
 
 # very fast approximation to the full Gamma MLE via Minka (2002) at MS Research
-gamma.mle <- function(x,niter=100,tol=0.000000001) { # {{{
+gamma.mle <- function(x,niter=100,tol=0.000000001,minx=1) { # {{{
 
-  meanlogx <- mean(log(na.omit(x)))
-  meanx <- mean(x, na.rm=T)
+  meanlogx <- mean(log(na.omit(pmax(x,minx))))
+  meanx <- mean(pmax(x,minx), na.rm=T)
   logmeanx <- log(meanx)
   a <- a0 <- (0.5/(logmeanx-meanlogx))  # from Minka 2002
   update.a <- function(a) {
@@ -97,6 +35,10 @@ gamma.mode <- function(par) { # {{{
   ifelse(par['shape'] >= 1, (par['shape']-1)*par['scale'], 0)
 } # }}}
 
+## FIXME:
+##
+## Get rid of the dependence on methylumiCSV's Cy3.negs and Cy5.negs methods
+##
 gamma.bg <- function(object, channel=NULL, channels=c('Cy3','Cy5')) { # {{{
   if(is.null(channel)) {
     perchannel <- lapply(channels, function(x) gamma.bg(object,x))
@@ -106,46 +48,66 @@ gamma.bg <- function(object, channel=NULL, channels=c('Cy3','Cy5')) { # {{{
   return(apply(negs(object, channel), 2, function(z) gamma.mle(z)))
 } # }}}
 
-gamma.fg <- function(object, channel=NULL, allele=NULL, channels=c('Cy3','Cy5'), alleles=c('methylated','unmethylated')) { # {{{
-  if(is.null(channel)) {
-    perchannel <- lapply(channels, function(x) gamma.fg(object, x))
+gamma.bg.ebayes <- function(object, channel=NULL, channels=c('Cy3','Cy5')){ #{{{
+  
+  # pool the gamma parameter distributions to estimate hyperparameters 
+  
+  # integrate(marginalScale, 0, Inf)
+  # integrate(marginalShape, 0, Inf)
+
+} # }}}
+
+allelic <- allelicity <- function(x, channel=NULL, allele=NULL, hard=F) { # {{{ 
+
+  # we could fit a fuzzy mixture model here, w/binary pi0
+  if(!is.null(channel) && tolower(channel) %in% c('cy3','cy5')) {
+    getchan <- match.fun(tolower(channel))
+    probes <- getchan(x)
+  } else {
+    probes <- 1:dim(x)[1]
+  }
+
+  # if we fit the fuzzy mixture, add a pi1 attribute
+  pi0 <- methylated(x)[probes,] / total.intensity(x)[probes,]
+  # also, if we do that, should we weight by detection here?
+
+  if(hard) pi0 <- round(pi0) # hard == dichotomized 
+
+  intensities <-list(
+    signal=((pi0*methylated(x)[probes,]) + ((1-pi0)*unmethylated(x)[probes,])),
+     noise=(((1-pi0)*methylated(x)[probes,]) + (pi0*unmethylated(x)[probes,]))
+  )
+  
+  if(is.null(allele)) return(intensities) 
+  else return(intensities[[allele]])
+
+} # }}}
+
+gamma.allelic <- gamma.fg <- function(object, channel=NULL, allele=NULL, channels=c('Cy3','Cy5'), alleles=c('signal','noise'), hard=F) { # {{{
+
+  if(is.null(channel)) { # {{{
+    perchannel <- lapply(channels, function(channel) {
+      gamma.allelic(object, channel=channel, allele=allele, hard=hard)
+    })
     names(perchannel) <- channels
     return(perchannel)
-  }
-  if(is.null(allele)) {
-    perallele <- lapply(alleles, function(x) gamma.fg(object, channel, x))
+  } # }}}
+  if(is.null(allele)) { # {{{
+    perallele <- lapply(alleles, function(allele) {
+      gamma.allelic(object, channel=channel, allele=allele, hard=hard)
+    })
     names(perallele) <- alleles
     return(perallele)
-  }
-  fn <- match.fun(paste(channel,allele,sep='.'))
-  return(apply(fn(object), 2, function(z) gamma.mle(pmax(z,1))))
+  } # }}}
+
+  apply(allelic(object,channel=channel,allele=allele,hard=hard),2,gamma.mle)
+
 } # }}}
 
-normal.bg <- function(object, channel=NULL, channels=c('Cy3','Cy5')) { # {{{
-  if(is.null(channel)) { 
-    perchannel <- lapply(channels, function(x) normal.bg(object,x))
-    names(perchannel) <- channels
-    return(perchannel)
-  }
-  return(colMeans(negs(object, channel), na.rm=T))
-} # }}}
+gamma.conditional <- function(total, params) { # {{{
 
-gamma.allelic <- function(object, channel=NULL, channels=c('Cy3','Cy5')) { # {{{
-  if(is.null(channel)) {
-    perchannel <- lapply(channels, function(x) gamma.fg(object, x))
-    names(perchannel) <- channels
-    return(perchannel)
-  }
-  stop('allelicity has not been correctly implemented yet')
-
-  fn <- match.fun(paste(channel,allele,sep='.'))
-  return(apply(fn(object), 2, function(z) gamma.mle(pmax(z,1))))
-} # }}}
-
-# FIXME: only generate once per subset (signal/nonsignal, red/green) per chip
-gamma.gamma.conditional <- function(params, total) { # {{{
-  
-  if( total > 100*sqrt( params[3] * (params[4]*params[4]) ) ) { # sd(bg)
+  if(length(total) > 1) sapply(total, gamma.conditional, params=params)
+  if(total > (params[3]*params[4])+(10*sqrt(params[3])*params[4])){ # mu+sd.bg
     return( total - (params[3]*params[4]) ) # total - mean(bg)
   } else { 
     g <- params[1] # signal shape
@@ -168,172 +130,57 @@ gamma.gamma.conditional <- function(params, total) { # {{{
 
 } # }}}
 
-gamma.gamma.signal <- function(object, channel=NULL, allele=NULL, channels=c('Cy3','Cy5')) { # {{{
-  stop('Gamma-Gamma convolution is not fully implemented yet')
-  if(is.null(channel)) lapply(channels, function(x) gamma.bg.mode(object,x))
-  mu <- par[1]
-  sigma <- exp(par[2])
-  sigma2 <- sigma * sigma
-  alpha <- exp(par[3])
-  if (alpha <= 0) 
-    stop("alpha must be positive")
-  if (sigma <= 0) 
-    stop("sigma must be positive")
-  mu.sf <- x - mu - sigma2/alpha
-  signal <- mu.sf + sigma2 * exp(dnorm(0, mean = mu.sf, sd = sigma, log = TRUE)-
-    pnorm(0, mean = mu.sf, sd = sigma, lower.tail = FALSE, log = TRUE))
-  o <- !is.na(signal)
-  if (any(signal[o] < 0)) {
-    warning("Limit of numerical accuracy reached with very low intensity or very high background:\nsetting adjusted intensities to small value")
-    signal[o] <- pmax(signal[o], 1e-06)
-  }
-  signal
-} # }}}
+gamma.signal <- function(object, channel=NULL, allele=NULL, channels=c('Cy3','Cy5'), alleles=c('signal','noise'), hard=F) { # {{{
 
-gamma.normal.params <- function(tot, bg, robust=F, mme=F) { # {{{ 
+  if(is.null(channel)) { # {{{
+    perchannel <- lapply(channels, function(channel) {
+      gamma.signal(object, channel=channel, allele=allele, hard=hard)
+    })
+    names(perchannel) <- channels
+    return(perchannel)
+  } # }}}
+  if(is.null(allele)) { # {{{
+    perallele <- lapply(alleles, function(allele) {
+      gamma.signal(object, channel=channel, allele=allele, hard=hard)
+    })
+    names(perallele) <- alleles
+    return(perallele)
+  } # }}}
 
-  if(is.null(tot)||is.null(bg)) stop('Non-NULL total and bg intensities needed')
-  if(anyMissing(tot) || min(tot) < 1) {
-    require(impute)
-    tot <- pmax(impute.knn(tot)$data, 1)
-  }
-  if(class(tot) %in% c('matrix','data.frame')) {
-    res <- t(sapply(colnames(tot), function(x) {
-      gamma.normal.params(tot[,x],bg[,x],robust=robust)
-    }))
-    res <- cbind(res, colMeans(bg, na.rm=T), colSds(tot, na.rm=T))
-    colnames(res) <- c('shape','scale','bg.mean','bg.sd')
-    modes <- apply(res, 1, gamma.mode)
-    res <- cbind(res, modes)
-    colnames(res)[ncol(res)] <- 'mode'
-    return(res)
-  }
-  ests <- c(mean(bg, na.rm=T), sd(bg, na.rm=T))
-  if(robust) ests <- unlist(huber(na.omit(bg)))
-  m <- m0 <- mu <- ests[1]
-  s <- s0 <- ests[2]
-  if( mme ) est <- gamma.mme(c(tot,bg))
-  else est <- gamma.mle(c(tot,bg))
-  a <- a0 <- est[1]
-  b <- b0 <- est[2]
+  params <- rbind(gamma.fg(object, channel, allele), gamma.bg(object, channel))
+  rownames(params) <- c('fg.shape','fg.scale','bg.shape','bg.scale')
+  totals <- rbind(allelic(object, channel=channel, hard=hard)[[allele]], params)
+  pars <- (nrow(totals)-nrow(params)+1):(nrow(totals))
+  sapply(1:dim(totals)[2], function(j) {
+    sapply(totals[-pars,j], gamma.conditional, params=totals[pars,j])
+  })
 
-  # could maximize the joint loglikelihood for j negative controls and i probes
-  params <- sapply(c(shape=a, scale=b, fg.mean=a*b, bg.mean=m, bg.sd=s), 
-                   as.numeric)
-  names(params) <- c('shape','scale','fg.mean','bg.mean','bg.sd')
-  return(params)
+  ## Now reconstruct the methylated and unmethylated bg-corrected signals,
+  ## using the adjusted betas to push them towards the "appropriate" place.
 
 } # }}}
 
-gamma.gamma.params <- function(tot, bg, robust=F, mme=F) { # {{{ 
-
-  if(is.null(tot)||is.null(bg)) stop('Non-NULL total and bg intensities needed')
-  if(anyMissing(tot) || min(tot) < 1) {
-    require(impute)
-    tot <- pmax(impute.knn(tot)$data, 1)
-  }
-  if(class(tot) %in% c('matrix','data.frame')) {
-    res <- t(sapply(colnames(tot), function(x) {
-      gamma.normal.params(tot[,x],bg[,x],robust=robust)
-    }))
-    res <- cbind(res, colMeans(bg, na.rm=T), colSds(tot, na.rm=T))
-    colnames(res) <- c('shape','scale','bg.mean','bg.sd')
-    modes <- apply(res, 1, gamma.mode)
-    res <- cbind(res, modes)
-    colnames(res)[ncol(res)] <- 'mode'
-    return(res)
-  }
-  ests <- c(mean(bg, na.rm=T), sd(bg, na.rm=T))
-  if(robust) ests <- unlist(huber(na.omit(bg)))
-  m <- m0 <- mu <- ests[1]
-  s <- s0 <- ests[2]
-  if( mme ) est <- gamma.mme(c(tot,bg))
-  else est <- gamma.mle(c(tot,bg))
-  a <- a0 <- est[1]
-  b <- b0 <- est[2]
-
-  # could maximize the joint loglikelihood for j negative controls and i probes
-  params <- sapply(c(shape=a, scale=b, fg.mean=a*b, bg.mean=m, bg.sd=s), 
-                   as.numeric)
-  names(params) <- c('shape','scale','fg.mean','bg.mean','bg.sd')
-  return(params)
-
-} # }}}
-
-allelicity <- function(x, betacut=0.5) { # {{{ mcut=0, derp
-  allele <- apply(betas(x), 2, function(y) y >= betacut)
-  return(list(mostlysignal=(allele*methylated(x))+((1-allele)*unmethylated(x)),
-              mostlynoise=((1-allele)*methylated(x))+(allele*unmethylated(x))))
-} # }}}
-
-# do this once per channel per allelicity (RedMostlySignal, RedMostlyNoise, ...)
-gamma.normal.signal <- function (x, params)  { # {{{
-
-  if(any(params<=0)) stop('All parameters must be positive')
-  bg.mean <- params['bg.mean']
-  bg.sd <- params['bg.sd']
-  shape <- params['shape']
-  scale <- params['scale']
-
-  # could use the mode below in a gamma-gamma model
-  mu.sf <- x - bg.mean - (bg.sd**2)*scale
-  expectedSgivenT <- function(x, params) {
-    # ... this is where the approximation comes in ... 
-  }
-
-  signal <- expectedSgivenT(x, params)
-
-  o <- !is.na(signal)
-  if (any(signal[o] < 0)) {
-    warning("Limit of numerical accuracy reached with very low intensity or very high background:\nsetting adjusted intensities to small value")
-    signal[o] <- pmax(signal[o], 1e-06)
-  }
-  signal
-
-} # }}}
-
-# normal-exponential deconvolution (WEHI code) for comparison with the above
-mcsv.nexp.signal <- function (par, x)  { # {{{
-  mu <- par[1]
-  sigma <- exp(par[2])
-  sigma2 <- sigma * sigma
-  alpha <- exp(par[3])
-  if (alpha <= 0) 
-    stop("alpha must be positive")
-  if (sigma <= 0) 
-    stop("sigma must be positive")
-  mu.sf <- x - mu - sigma2/alpha
-  signal <- mu.sf + sigma2 * exp(dnorm(0, mean = mu.sf, sd = sigma, log = TRUE)-
-    pnorm(0, mean = mu.sf, sd = sigma, lower.tail = FALSE, log = TRUE))
-  o <- !is.na(signal)
-  if (any(signal[o] < 0)) {
-    warning("Limit of numerical accuracy reached with very low intensity or very high background:\nsetting adjusted intensities to small value")
-    signal[o] <- pmax(signal[o], 1e-06)
-  }
-  signal
-} # }}}
-
-# this is the final result of all the above chicanery... a normal-gamma model
-mcsv.normgamma <- function(object,channel=NULL,allele=NULL,channels=c('Cy3','Cy5'),alleles=c('mostlysignal','mostlynoise'),annotation=NULL,betacut=0.5,robust=F, use.score=T, parallel=F, offset=50){ #{{{
+# gamma-gamma deconvolution (my code) for comparison; mvalcut == log2it(betacut)
+mcsv.gammagamma <- function(object,channel=NULL,allele=NULL,channels=c('Cy3','Cy5'),alleles=c('mostlysignal','mostlynoise'),annotation=NULL,betacut=0.5,robust=F, use.score=T, parallel=F, offset=25){ #{{{
 
   x <- clone(object)
-  if(any(methylated(x)<=0)) methylated(x)[which(methylated(x)==0)] <- 1
-  if(any(unmethylated(x)<=0)) unmethylated(x)[which(unmethylated(x)==0)] <- 1
+  methylated(x) <- pmax(methylated(x), 1)
+  unmethylated(x) <- pmax(unmethylated(x), 1)
   betas(x) <- methylated(x) / (methylated(x) + unmethylated(x))
-  if( is.null(QCdata(x)) ) # can adapt this to crlmm no problem...
-    stop('Your object does not have any control bead data! Exiting.')
-
-  history.submitted <- as.character(Sys.time())
+  if(is(x, 'MethyLumiM')) qcdata <- controlData(x)
+  if(is(x, 'MethyLumiSet')) qcdata <- QCdata(x)
+  if( is.null(QCdata(x)) ) {
+    stop('Your object does not appear to have any control bead data! Exiting.')
+  } else {
+    history.submitted <- as.character(Sys.time())
+  }
 
   # this can and should be a methylumi or Lumi method
   if(is.null(annotation)) annotation <- annotation(x)
   if(is.null(annotation)) annotation <- 'IlluminaHumanMethylation27k'
-  require(paste(annotation,'db',sep='.'), character.only=T) # for COLORCHANNEL
-  annochan <- paste(annotation,'COLORCHANNEL',sep='')
-  color <- unlist(mget(featureNames(x), get(annochan), ifnotfound=NA))
-  cy5 <- which(color=='Red')
-  cy3 <- which(color=='Grn')
-  probes <- list(Cy5=cy5, Cy3=cy3, cy5=cy5, cy3=cy3) # backwards compatibility
+  require(paste(annotation,'db',sep='.'), character.only=T)
+  probes <- list(Cy5=cy5(x), Cy3=cy3(x))
+
   if(ncol(betas(x)) != ncol(negs(x, 'Cy3'))) {
     stop("Control beads do not match the number of samples in the dataset!!!")
   } else {
@@ -476,3 +323,54 @@ mcsv.normgamma <- function(object,channel=NULL,allele=NULL,channels=c('Cy3','Cy5
 
 } # }}}
 
+################################################################################
+
+# normal-exponential deconvolution (WEHI code) for comparison with the above
+normal.bg <- function(object, channel=NULL, channels=c('Cy3','Cy5')) { # {{{
+  if(is.null(channel)) { 
+    perchannel <- lapply(channels, function(x) normal.bg(object,x))
+    names(perchannel) <- channels
+    return(perchannel)
+  }
+  return(colMeans(negs(object, channel), na.rm=T))
+} # }}}
+
+mcsv.nexp.signal <- function (par, x)  { # {{{
+  mu <- par[1]
+  sigma <- exp(par[2])
+  sigma2 <- sigma * sigma
+  alpha <- exp(par[3])
+  if (alpha <= 0) 
+    stop("alpha must be positive")
+  if (sigma <= 0) 
+    stop("sigma must be positive")
+  mu.sf <- x - mu - sigma2/alpha
+  signal <- mu.sf + sigma2 * exp(dnorm(0, mean = mu.sf, sd = sigma, log = TRUE)-
+    pnorm(0, mean = mu.sf, sd = sigma, lower.tail = FALSE, log = TRUE))
+  o <- !is.na(signal)
+  if (any(signal[o] < 0)) {
+    warning("Limit of numerical accuracy reached with very low intensity or very high background:\nsetting adjusted intensities to small value")
+    signal[o] <- pmax(signal[o], 1e-06)
+  }
+  signal
+} # }}}
+
+mcsv.gamma.signal <- function (par, x)  { # {{{
+  mu <- par[1]
+  sigma <- exp(par[2])
+  sigma2 <- sigma * sigma
+  alpha <- exp(par[3])
+  if (alpha <= 0) 
+    stop("alpha must be positive")
+  if (sigma <= 0) 
+    stop("sigma must be positive")
+  mu.sf <- x - mu - sigma2/alpha
+  signal <- mu.sf + sigma2 * exp(dnorm(0, mean = mu.sf, sd = sigma, log = TRUE)-
+    pnorm(0, mean = mu.sf, sd = sigma, lower.tail = FALSE, log = TRUE))
+  o <- !is.na(signal)
+  if (any(signal[o] < 0)) {
+    warning("Limit of numerical accuracy reached with very low intensity or very high background:\nsetting adjusted intensities to small value")
+    signal[o] <- pmax(signal[o], 1e-06)
+  }
+  signal
+} # }}}
