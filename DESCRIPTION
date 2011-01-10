@@ -1,6 +1,7 @@
 Package: rGammaGamma
 Type: Package
 Title: This is a small package to work with Gamma convolutions.
+Depends: gsl, methylumIDAT
 Version: 1.0
 Date: 2010-12-20
 Author: Tim Triche, Jr.
@@ -8,4 +9,3 @@ Maintainer: Tim Triche, Jr. <tim.triche@gmail.com>
 Description: Most of the hypergeometric functions available in R are either general-purpose, fixed-precision, or slower than molasses, which makes Gamma convolutions infeasible as a means of background correction for microarrays.  This package simply adapts a multiple-precision confluent hypergeometric 1F1 implementation from the MADNESS project to work with R and address the difficulty described.
 License: GPL (>= 2.0)
 LazyLoad: yes
-Depends: gsl, methylumIDAT
