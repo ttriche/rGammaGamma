@@ -1,3 +1,11 @@
+## this is the precision term for beta regression
+## 
+beta.phi <- function(x, w=NULL) { # {{{
+  return(sum(beta.mme(x, w)))
+} # }}}
+
+## faster than the MLE and typically lower variance as well; accepts weights
+##
 beta.mme <- function(x, w=NULL) { # {{{
   if(is.null(w)) w <- rep(1/length(x), length(x))
   xb <- weighted.mean(x, w, na.rm=T)
@@ -7,22 +15,24 @@ beta.mme <- function(x, w=NULL) { # {{{
   return(c(a=max(a,0), b=max(b,0)))
 } # }}}
 
-beta.mode <- function(x, w=NULL) { # {{{
-  pars <- beta.mme(x, w)
-  if(!all(pars > 1)) return(NaN)
-  else return((pars[1] - 1)/(sum(pars)-2))
+## used to set the priors for the mixture model a bit more effectively
+## 
+beta.mode <- function(a, b) { # {{{
+  if(all(c(a,b) < 1)) return(NaN)
+  if(a < 1) return(1)
+  if(b < 1) return(0)
+  return( (a-1) / (a+b-2) )
 } # }}}
 
-betaff.mme <- function(x, w=NULL) { # {{{
-  pars <- beta.mme(x, w)
-  return(c(mu=pars[1]/(sum(pars)), phi=sum(pars)))
-} # }}}
-
+## beta mixture model for a "more empirical" prior on signal/noise guesses
+## 
 beta.unmix <- function(x, niter=25, parallel=FALSE, tol=0.000001) { # {{{ 
 
-  require(impute)
-  if(is(x, 'MethyLumiSet') || is(x, 'MethyLumiM')) x <- betas(x)
-  if(anyMissing(x)) x <- impute.knn(x)$data
+  if(is(x, 'MethyLumiSet') || is(x, 'MethyLumiM')) { # {{{
+    x <- pmax(1, methylated(x)) / pmax(2, (methylated(x)+unmethylated(x)))
+    x <- pmax(0.000001, pmin(0.999999, x)) # squeeze play 
+  } # }}}
+  if(anyMissing(x)) stop("NA values are not supported; fix with impute.knn")
   if(is(x, 'matrix')) { # {{{
     if(parallel) {
       require(multicore) ## FIXME: OpenMP would be better
@@ -34,8 +44,13 @@ beta.unmix <- function(x, niter=25, parallel=FALSE, tol=0.000001) { # {{{
     }
   } # }}}
 
-  pi0 <- pi1 <- x
+  pi0 <- x
   theta0 <- list(U=beta.mme(x, 1-pi0), M=beta.mme(x, pi0))
+  modes0 <- lapply(theta0, beta.mode)
+
+  ## a cheap hack to speed convergence
+  pi0[ which(pi0 < modes0$U) ] <- min(pi0)
+  pi0[ which(pi0 > modes0$M) ] <- max(pi0)
 
   ## FIXME: do in C++
   negloglik0 <- 10000
