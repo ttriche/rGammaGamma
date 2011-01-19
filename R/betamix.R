@@ -18,6 +18,10 @@ beta.mme <- function(x, w=NULL) { # {{{
 ## used to set the priors for the mixture model a bit more effectively
 ## 
 beta.mode <- function(a, b) { # {{{
+  if(length(a) > 1) {
+    b <- a[2]
+    a <- a[1]
+  }
   if(all(c(a,b) < 1)) return(NaN)
   if(a < 1) return(1)
   if(b < 1) return(0)
