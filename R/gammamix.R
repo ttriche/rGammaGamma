@@ -1,11 +1,5 @@
 require('gsl') # for hyperg_1F1 in the conditional expectation of the signal
 
-## FIXME: add Spearman correlation plot auto-generation for comparisons
-##
-spcor.plot <- function(x, allsame=T) { # {{{
-
-} # }}}
-
 ################################################################################
 
 # the canonical gamma MME -- but the cMLE is lower variance and just as fast!
@@ -62,6 +56,7 @@ gamma.bg.ebayes <- function(object, channel=NULL, channels=c('Cy3','Cy5')){ #{{{
 ##
 allelic <- function(x,channel=NULL,allele=NULL,mixture=F,hard=F,parallel=F){#{{{
 
+  ## FIXME: turn this into a defmacro already!!1
   if(!is.null(channel) && tolower(channel) %in% c('cy3','cy5')) { # {{{
     getchan <- match.fun(tolower(channel))
     probes <- getchan(x)
@@ -79,7 +74,8 @@ allelic <- function(x,channel=NULL,allele=NULL,mixture=F,hard=F,parallel=F){#{{{
 
   intensities <-list(
     signal=((pi0*methylated(x)[probes,]) + ((1-pi0)*unmethylated(x)[probes,])),
-     noise=(((1-pi0)*methylated(x)[probes,]) + (pi0*unmethylated(x)[probes,])))
+     noise=(((1-pi0)*methylated(x)[probes,]) + (pi0*unmethylated(x)[probes,]))
+  )
   
   if(is.null(allele)) return(intensities) 
   else return(intensities[[allele]])
@@ -174,6 +170,12 @@ gamma.signal <- function(object, channel=NULL, allele=NULL, channels=c('Cy3','Cy
   lapply(signal, function(x) gamma.conditional(x, pars))
 
   ## recover M/U as pi0*signal + (1-pi0)*noise for each allele
+
+} # }}}
+
+## FIXME: Spearman correlation plot for replicates/slopes in each method
+## 
+spcor.plot <- function(x, allsame=T) { # {{{
 
 } # }}}
 

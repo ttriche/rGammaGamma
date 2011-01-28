@@ -3,41 +3,32 @@
 \alias{rGammaGamma}
 \docType{package}
 \title{
-What the package does (short line)
-~~ package title ~~
+  Implementation of a gamma deconvolution for background correction.
 }
 \description{
-More about what it does (maybe more than one line)
-~~ A concise (1-5 lines) description of the package ~~
+  SNP and methylation microarrays exhibit a different distribution of signal
+  and background intensities than expression microarrays.  The flexibility of
+  the gamma distribution suits the observed signal and background intensity 
+  distributions well, encompassing as a special case the normal-exponential 
+  convolution (the de facto standard for expression background correction).
+  In addition, a signal/noise mixture model is implemented for empirical 
+  deconvolution of cross-hybridization between probe alleles.
 }
 \details{
 \tabular{ll}{
-Package: \tab rGammaGamma\cr
-Type: \tab Package\cr
-Version: \tab 1.0\cr
-Date: \tab 2010-12-20\cr
-License: \tab What license is it under?\cr
-LazyLoad: \tab yes\cr
+Package:  rGammaGamma
+Type:     Package
+Version:  0.9
+Date:     2011-01-27
+License:  Artistic
+LazyLoad: yes
 }
-~~ An overview of how to use the package, including the most important ~~
-~~ functions ~~
 }
 \author{
-Who wrote it
-
-Maintainer: Who to complain to <yourfault@somewhere.net>
-~~ The author and/or maintainer of the package ~~
+Tim Triche, Jr.<ttriche@usc.edu>
 }
-\references{
-~~ Literature or other references for background information ~~
-}
-~~ Optionally other standard keywords, one per line, from file KEYWORDS in ~~
-~~ the R documentation directory ~~
 \keyword{ package }
-\seealso{
-~~ Optional links to other man pages, e.g. ~~
-~~ \code{\link[<pkg>:<pkg>-package]{<pkg>}} ~~
-}
 \examples{
-%% ~~ simple examples of the most important functions ~~
+  foo <- methylumIDAT(barcodes, parallel=T)
+  foo.bg <- gammagamma(foo)
 }
