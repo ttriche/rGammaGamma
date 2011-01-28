@@ -48,17 +48,6 @@ NumericVector complement( NumericVector x ) { // {{{
 
 } // }}}
 
-double weighted_mean( NumericVector x, NumericVector w ) { //{{{
-
-  double y = 0.0;
-  int n = w.size();
-  for( int i=0; i < n; i++ ) {
-    y += (x[i]*w[i]);
-  }
-  return( y / sum(w) );
-
-} // }}}
-
 NumericVector beta_xform( NumericVector x, NumericVector w ) { //{{{
 
   int n = x.size();
@@ -74,18 +63,75 @@ double beta_wll( NumericVector par, NumericVector x, NumericVector w ) { // {{{
 
   int n = x.size();
   NumericVector zz(n);
-  // use Rcpp::sugar to pump everything through dbeta() :-)
-  zz = (w * dbeta( x, par[0], par[1], 1 ) );  // log=TRUE
+  //
+  // == (n*lgamma(a+b)) - (n*lgamma(a)) - (n*lgamma(b)) +
+  //    ((a-1)*sum(w*log(x))) + ((b-1)*sum(w*log(complement(x))))
+  //
+  // or just use Rcpp::sugar to roll through dbeta() 
+  zz = (w * dbeta( x, par[0], par[1], 1 ) );  // log
   return(sum(zz));
+
+} // }}}
+
+double weighted_mean( NumericVector x, NumericVector w ) { //{{{
+
+  double y = 0.0;
+  int n = w.size();
+  for( int i=0; i < n; i++ ) {
+    y += (x[i]*w[i]);
+  }
+  return( y / sum(w) );
+
+} // }}}
+
+double weighted_var( NumericVector x, NumericVector w ) { //{{{
+
+  double s2 = 0.0 ;
+  int n = w.size() ;
+  double xb = weighted_mean(x, w) ;
+  for( int i=0; i < n; i++ ) {
+    s2 += ((w[i] * pow(x[i]-xb, 2) ) / sum(w)) ;
+  }
+  return( s2 ) ;
+
+} // }}}
+
+NumericVector beta_wmme( NumericVector x, NumericVector w ) { // {{{
+
+  NumericVector pars(2);
+  double xb = weighted_mean(x, w);
+  double s2 = weighted_var(x, w);
+  pars[1] = xb * (((xb * (1-xb)) / s2) - 1);
+  pars[2] = (1-xb) * (((xb * (1-xb)) / s2) - 1);
+  return(pars);
 
 } // }}}
 
 NumericVector beta_wmle( NumericVector x, NumericVector w ) { // {{{
 
-  NumericVector par(2);
+  NumericVector par0(2);
+  NumericVector par1(2);
+  par1 = par0 = beta_wmme( x, w ); 
 
   // FIXME: Newton-Raphson or L-BFGS-B? 
+  //
+  // wll( theta ) = (n*lgamma(a+b)) - (n*lgamma(a)) - (n*lgamma(b)) +
+  //                ((a-1)*sum(w*log(x))) + ((b-1)*sum(w*log(complement(x))))
+  //
+  // grad( theta ) = NumericVector(2) = (g1, g2)
+  //   g1( theta ) = digamma(a+b) - digamma(a) + (sum(w*log(x))/sum(w))
+  //   g2( theta ) = digamma(a+b) - digamma(b) + (sum(w*log(1-x))/sum(w))
+  //
+  // hess( theta ) = NumericMatrix(2, 2) = ((dg1a, dxab), (dxab, dg2b))
+  // dg1a( theta ) = trigamma(a) - trigamma(a + b)
+  // dxab( theta ) = -1 * trigamma(a + b)
+  // dg1a( theta ) = trigamma(b) - trigamma(a + b)
+  //
+  // for( int i = 0; i < MAXITER; i++ ) { 
+  //   par1 = par0 - (solve(hess(par0))*grad(par0));
+  //   if( abs( beta_wll(par1,x,w) - beta_wll(theta0,x,w)) < TOLERANCE ) break;
+  // }
 
-  return(par);
+  return(par1);
 
 } // }}}

@@ -15,6 +15,12 @@ NumericVector beta_xform( NumericVector x, NumericVector w );
   
 NumericVector beta_wmle( NumericVector x, NumericVector w ); 
 
+NumericVector beta_wmme( NumericVector x, NumericVector w ); 
+
 double beta_wll( NumericVector par, NumericVector x, NumericVector w );
+
+double weighted_mean( NumericVector x, NumericVector w );
+
+double weighted_var( NumericVector x, NumericVector w );
 
 #endif
