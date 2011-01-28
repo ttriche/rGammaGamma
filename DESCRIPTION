@@ -2,7 +2,8 @@ Package: rGammaGamma
 Type: Package
 Title: This is a small package to work with Gamma convolutions.
 Depends: gsl, methylumIDAT
-Version: 1.0
+LinkingTo: Rcpp
+Version: 0.9
 Date: 2010-12-20
 Author: Tim Triche, Jr.
 Maintainer: Tim Triche, Jr. <tim.triche@gmail.com>

@@ -1,3 +1,2 @@
-import(gsl)
-import(methylumIDAT)
+useDynLib(rGammaGamma)
 exportPattern("^[[:alpha:]]+")
