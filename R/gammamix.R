@@ -43,15 +43,6 @@ gamma.bg <- function(object, channel=NULL, channels=c('Cy3','Cy5')) { # {{{
   return(apply(negctls(object, channel), 2, function(z) gamma.mle(z)))
 } # }}}
 
-gamma.bg.ebayes <- function(object, channel=NULL, channels=c('Cy3','Cy5')){ #{{{
-  
-  # pool the gamma parameter distributions to estimate hyperparameters 
-  
-  # integrate(marginalScale, 0, Inf)
-  # integrate(marginalShape, 0, Inf)
-
-} # }}}
-
 ## FIXME: don't forget to bgcorrect the non-negative control probes too!!!
 ##
 allelic <- function(x,channel=NULL,allele=NULL,mixture=F,hard=F,parallel=F){#{{{
@@ -66,15 +57,18 @@ allelic <- function(x,channel=NULL,allele=NULL,mixture=F,hard=F,parallel=F){#{{{
   } # }}}
 
   # if we fit the fuzzy mixture, add a pi1 attribute
+  # 1-28-2011 don't do it -- doesn't work rite for mixtures
   pi0 <- methylated(x)[probes,] / total.intensity(x)[probes,] # i.e., Beta
 
   ## FIXME: should we weight pi0 by detection here?
-  if(hard) pi0 <- round(pi0) # hard == dichotomized 
-  if(mixture) pi0 <- beta_unmix(x, parallel=parallel) # post-EM assignments
+  # if(mixture) pi0 <- beta_unmix(x, parallel=parallel) # post-EM assignments
+  if(hard) piM <- round(pi0) # hard == dichotomized 
+  else piM <- pi0
+  piU <- 1-piM
 
   intensities <-list(
-    signal=((pi0*methylated(x)[probes,]) + ((1-pi0)*unmethylated(x)[probes,])),
-     noise=(((1-pi0)*methylated(x)[probes,]) + (pi0*unmethylated(x)[probes,]))
+    signal=((piM*methylated(x)[probes,]) + (piU*unmethylated(x)[probes,])),
+     noise=((piU*methylated(x)[probes,]) + (piM*unmethylated(x)[probes,]))
   )
   
   if(is.null(allele)) return(intensities) 
@@ -101,12 +95,11 @@ gamma.allelic <- gamma.fg <- function(object, channel=NULL, allele=NULL, channel
   } # }}}
 
   # unless using hard assignments, we'll just set pi0(y) to beta(y)
-  apply( c(allelic(object,channel=channel,allele=allele,hard=hard),
-           nonnegs(object,channel=channel)), 2, gamma.mle )
+  apply(allelic(object,channel=channel,allele=allele,hard=hard), 2, gamma.mle)
 
 } # }}}
 
-gamma.conditional <- function(total, params) { # {{{
+gamma.conditional <- function(total, params, offset=15) { # {{{
 
   if(length(total) > 1) sapply(total, gamma.conditional, params=params)
   if(total > (params[3]*params[4])+(10*sqrt(params[3])*params[4])){ # mu+sd.bg
@@ -125,7 +118,7 @@ gamma.conditional <- function(total, params) { # {{{
           # print(paste('f(',x,')=',num,'/',den,'=',num/den)) # = num*(1/den)*x
         }, 
         0, total
-      )$value # else will return a list with value, abs.error, subdivisions, ...
+      )$value + offset
     )
     # integrate(PrSignalGivenTotal, 0, total)
   }
@@ -135,6 +128,7 @@ gamma.conditional <- function(total, params) { # {{{
 ## FIXME: add a qa step for the remapped beta-mixture scheme
 ## 
 gamma.signal <- function(object, channel=NULL, allele=NULL, channels=c('Cy3','Cy5'), alleles=c('signal','noise'), hard=F, parallel=F) { # {{{
+
 
   if(is.null(channel)) { # {{{
     perchannel <- lapply(channels, function(channel) {
@@ -160,6 +154,7 @@ gamma.signal <- function(object, channel=NULL, allele=NULL, channels=c('Cy3','Cy
 
   ## should parallelize here 
   signal <- sapply(1:dim(totals)[2], function(j) {
+    # I_S_jk = gamma.conditional(I_jk, params[j,])
     sapply(totals[-pars,j], gamma.conditional, params=totals[pars,j])
   })
 
@@ -173,13 +168,47 @@ gamma.signal <- function(object, channel=NULL, allele=NULL, channels=c('Cy3','Cy
 
 } # }}}
 
-## FIXME: Spearman correlation plot for replicates/slopes in each method
-## 
-spcor.plot <- function(x, allsame=T) { # {{{
-
+# cross-correlation between replicates and such, for testing normalization
+spcor <- function(object, reps=NULL, parallel=FALSE, ... ) { # {{{
+  combos <- matrix(0,1,2)
+  if(is.null(reps)) reps <- 1:dim(object)[2]
+  for(i in 1:length(reps)) {
+    for(j in i:length(reps)) { 
+      if( i != j ) combos <- rbind(combos, c(reps[i], reps[j]))
+    }
+  }
+  x <- methylated(object)/total.intensity(object)
+  if( parallel ) {
+    require('multicore')
+    results <- c(unlist(mclapply(2:nrow(combos), function(m)
+      cor(x[,combos[m,1]], x[,combos[m,2]], method="spearman", use="complete")
+    )))
+  } else {
+    results <- c(unlist(lapply(2:nrow(combos), function(m)
+      cor(x[,combos[m,1]],x[,combos[m,2]],use="comp")
+    )))
+  }
+  return(results)
 } # }}}
 
-# gamma-gamma deconvolution (my code) for comparison; mvalcut == log2it(betacut)
+spcor.plot <- function(x, ID=NULL, parallel=TRUE) { # {{{
+  if(parallel) require(multicore)
+  if(is.null(ID)) ID <- factor(pData(x)[['ID']])
+  if(is.null(ID)) stop('Cannot work without IDs!') 
+  cols <- c('red','green','brown','blue','orange')
+  spcs <- mclapply(levels(ID), function(i) spcor(x,which(pData(x)[['ID']]==i)))
+  names(spcs) <- levels(ID)
+  plot( density(unlist(lapply(spcs, mean, na.rm=T))), lwd=3,
+        main='Replicate correlation (black is overall)',
+        ylab='Density', xlab='Spearman correlation' )
+  levelses <- levels(ID)
+  for(l in 1:nlevels(ID)) {
+    lines( density(na.omit(spcs[[levelses[l]]])), 
+           col=(l%%nlevels(ID))+1, lty=2 )
+  }
+} # }}}
+
+# gammagamma deconvolution (my code) for comparison
 mcsv.gammagamma <- function(object,channel=NULL,allele=NULL,channels=c('Cy3','Cy5'),alleles=c('signal','noise'),annotation=NULL,betacut=0.5,robust=F, use.score=T, parallel=F, offset=25){ #{{{
 
   x <- clone(object)
@@ -337,18 +366,6 @@ mcsv.gammagamma <- function(object,channel=NULL,allele=NULL,channels=c('Cy3','Cy
     zalpha[[channel]] <- alpha
   }
 
-} # }}}
-
-################################################################################
-
-# normal-exponential deconvolution (WEHI code) for comparison with the above
-normal.bg <- function(object, channel=NULL, channels=c('Cy3','Cy5')) { # {{{
-  if(is.null(channel)) { 
-    perchannel <- lapply(channels, function(x) normal.bg(object,x))
-    names(perchannel) <- channels
-    return(perchannel)
-  }
-  return(colMeans(negs(object, channel), na.rm=T))
 } # }}}
 
 mcsv.nexp.signal <- function (par, x)  { # {{{
