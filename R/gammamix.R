@@ -8,7 +8,9 @@ gamma.mme <- function(x) { # {{{
            scale=var(as.matrix(x),na.rm=T)/mean(as.matrix(x),na.rm=T)))
 } # }}}
 
-# very fast approximation to the full Gamma MLE via Minka (2002) at MS Research
+## very fast approximation to the full Gamma MLE via Minka (2002) at MS Research
+## FIXME: move this to C++
+##
 gamma.mle <- function(x,niter=100,tol=0.000000001,minx=1) { # {{{
 
   meanlogx <- mean(log(na.omit(pmax(x,minx))))
@@ -101,11 +103,14 @@ gamma.allelic <- gamma.fg <- function(object, channel=NULL, allele=NULL, channel
   } # }}}
 
   # unless using hard assignments, we'll just set pi0(y) to beta(y)
-  apply( c(allelic(object,channel=channel,allele=allele,hard=hard),
-           nonnegs(object,channel=channel)), 2, gamma.mle )
+  apply( allelic(object,channel=channel,allele=allele,hard=hard),
+         # nonnegs(object,channel=channel),  # unsure why this causes problems
+         2, gamma.mle )
 
 } # }}}
 
+## FIXME: move this to C++
+##
 gamma.conditional <- function(total, params) { # {{{
 
   if(length(total) > 1) sapply(total, gamma.conditional, params=params)
@@ -132,8 +137,7 @@ gamma.conditional <- function(total, params) { # {{{
 
 } # }}}
 
-## FIXME: add a qa step for the remapped beta-mixture scheme
-## 
+## FIXME: add a qa step for the remapped beta-mixture scheme or don't use it
 gamma.signal <- function(object, channel=NULL, allele=NULL, channels=c('Cy3','Cy5'), alleles=c('signal','noise'), hard=F, parallel=F) { # {{{
 
   if(is.null(channel)) { # {{{
@@ -173,7 +177,7 @@ gamma.signal <- function(object, channel=NULL, allele=NULL, channels=c('Cy3','Cy
 
 } # }}}
 
-# cross-correlation between replicates and such, for testing normalization
+## cross-correlation between replicates and such, for testing normalization
 spcor <- function(object, reps=NULL, parallel=FALSE, ... ) { # {{{
   combos <- matrix(0,1,2)
   if(is.null(reps)) reps <- 1:dim(object)[2]
@@ -211,24 +215,4 @@ spcor.plot <- function(x, ID=NULL, parallel=TRUE) { # {{{
     lines( density(na.omit(spcs[[levelses[l]]])), 
            col=(l%%nlevels(ID))+1, lty=2 )
   }
-} # }}}
-
-mcsv.nexp.signal <- function (par, x)  { # {{{
-  mu <- par[1]
-  sigma <- exp(par[2])
-  sigma2 <- sigma * sigma
-  alpha <- exp(par[3])
-  if (alpha <= 0) 
-    stop("alpha must be positive")
-  if (sigma <= 0) 
-    stop("sigma must be positive")
-  mu.sf <- x - mu - sigma2/alpha
-  signal <- mu.sf + sigma2 * exp(dnorm(0, mean = mu.sf, sd = sigma, log = TRUE)-
-    pnorm(0, mean = mu.sf, sd = sigma, lower.tail = FALSE, log = TRUE))
-  o <- !is.na(signal)
-  if (any(signal[o] < 0)) {
-    warning("Limit of numerical accuracy reached with very low intensity or very high background:\nsetting adjusted intensities to small value")
-    signal[o] <- pmax(signal[o], 1e-06)
-  }
-  signal
 } # }}}
