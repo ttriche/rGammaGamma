@@ -11,10 +11,11 @@ gamma.mme <- function(x) { # {{{
 ## very fast approximation to the full Gamma MLE via Minka (2002) at MS Research
 ## FIXME: move this to C++
 ##
-gamma.mle <- function(x,niter=100,tol=0.000000001,minx=1) { # {{{
+gamma.mle <- function(x,w=NULL,niter=100,tol=0.000000001,minx=1) { # {{{
 
-  meanlogx <- mean(log(na.omit(pmax(x,minx))))
-  meanx <- mean(pmax(x,minx), na.rm=T)
+  if( is.null(w) ) w <- rep( 1/length(x), length(x) )
+  meanlogx <- weighted.mean(log(pmax(x,minx)), w)
+  meanx <- weighted.mean(pmax(x,minx), w)
   logmeanx <- log(meanx)
   a <- a0 <- (0.5/(logmeanx-meanlogx))  # from Minka 2002
   update.a <- function(a) {
