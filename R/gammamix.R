@@ -305,7 +305,7 @@ spcor.plot <- function(x, ID=NULL, parallel=TRUE) { # {{{
 ## FIXME: switch to using C++ and/or OpenMP to speed this up tolerably
 ## FIXME: adjust negative and positive controls along with analytic probes
 ## FIXME: add a log entry for gamma deconvolution and note how it was done
-gamma.bgcorr <- function(object, how='controls', parallel=F) { # {{{
+gamma.bgcorr <- function(object, how='controls', offset=15, parallel=F) { # {{{
   
   if(annotation(object)=='HumanMethylation450k') stop('450ks not supported yet')
 
@@ -322,9 +322,9 @@ gamma.bgcorr <- function(object, how='controls', parallel=F) { # {{{
     Us[ getProbesByChannel(object, ch), ] <- signal[[ch]][['unmethylated']]
   }
   cloned <- clone(object)
-  methylated(cloned) <- Ms
-  unmethylated(cloned) <- Us
-  pval.detect(cloned) <- 0.05
+  methylated(cloned) <- Ms + offset
+  unmethylated(cloned) <- Us + offset
+  pval.detect(cloned) <- 0.05 # resets betas
   return(cloned)
 
 } # }}}
