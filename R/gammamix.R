@@ -2,18 +2,16 @@ require('gsl') # for hyperg_1F1 in the conditional expectation of the signal
 
 ################################################################################
 
-# the canonical gamma MME -- but the cMLE is lower variance and just as fast!
+## the canonical gamma MME -- but the cMLE is lower variance and just as fast!
 gamma.mme <- function(x) { # {{{
   return(c(shape=(mean(as.matrix(x),na.rm=T)/sd(as.matrix(x),na.rm=T))^2,
            scale=var(as.matrix(x),na.rm=T)/mean(as.matrix(x),na.rm=T)))
 } # }}}
 
-## very fast approximation to the full Gamma MLE via Minka (2002) at MS Research
-## FIXME: move this to C++
-##
+## fast approximation to the full Gamma MLE via Minka (2002) at MS Research
 gamma.mle <- function(x,w=NULL,niter=100,tol=0.000000001,minx=1) { # {{{
 
-  if( is.null(w) ) w <- rep( 1/length(x), length(x) )
+  if( is.null(w) ) w <- rep( 1, length(x) )
   meanlogx <- weighted.mean(log(pmax(x,minx)), w)
   meanx <- weighted.mean(pmax(x,minx), w)
   logmeanx <- log(meanx)
@@ -56,7 +54,6 @@ gamma.bg.ebayes <- function(object, channel=NULL, channels=c('Cy3','Cy5')){ #{{{
 } # }}}
 
 ## FIXME: don't forget to bgcorrect the non-negative control probes too!!!
-##
 allelic <- function(x,channel=NULL,allele=NULL,mixture=F,hard=F,parallel=F){#{{{
 
   ## FIXME: turn this into a defmacro already!!1
@@ -111,18 +108,17 @@ gamma.allelic <- gamma.fg <- function(object, channel=NULL, allele=NULL, channel
 } # }}}
 
 ## FIXME: move this to C++
-##
-gamma.conditional <- function(total, params) { # {{{
+gamma.conditional <- function(total, params, minx=1) { # {{{
 
   if(length(total) > 1) sapply(total, gamma.conditional, params=params)
-  if(total > (params[3]*params[4])+(10*sqrt(params[3])*params[4])){ # mu+sd.bg
+  if(total > (params[3]*params[4])+(6*sqrt(params[3])*params[4])){ # mu+sd.bg
     return( total - (params[3]*params[4]) ) # total - mean(bg)
   } else { 
     g <- params[1] # signal shape
     a <- params[2] # signal scale
     d <- params[3] # bg shape
     b <- params[4] # bg scale
-    return( 
+    res <- try( 
       integrate( 
         function(x) {
           # print(paste('Computing 1F1(',g,',',g+d,',',total*((1/b)-(1/a)),')'))
@@ -132,28 +128,120 @@ gamma.conditional <- function(total, params) { # {{{
         }, 
         0, total
       )$value # else will return a list with value, abs.error, subdivisions, ...
-    )
-    # integrate(PrSignalGivenTotal, 0, total)
+    ) # i.e., integrate(PrSignalGivenTotal, /* from */ 0, /* to */ total);
+    if(class(res) == 'try-error') {
+      if(total > d*b) return(total-(d*b))
+      else return(minx)
+    } else {
+      return(res)
+    }
   }
 
 } # }}}
 
-## FIXME: add a qa step for the remapped beta-mixture scheme or don't use it
-gamma.signal <- function(object, channel=NULL, allele=NULL, channels=c('Cy3','Cy5'), alleles=c('signal','noise'), hard=F, parallel=F) { # {{{
+gamma.ctl <- function(object, channel=NULL, allele=NULL, channels=c('Cy3','Cy5'), alleles=c('methylated','unmethylated'), parallel=F){ # {{{
 
+  if(parallel) { # {{{
+    require(multicore)
+    oldcores <- options()$cores
+    if( is.null(channel) ) options("cores"=max(2, options()$cores/2))
+    if( is.null(allele) ) options("cores"=max(2, options()$cores/2))
+  } # }}}
   if(is.null(channel)) { # {{{
-    perchannel <- lapply(channels, function(channel) {
-      gamma.signal(object, channel=channel, allele=allele, hard=hard)
-    })
+    if(parallel) { 
+      perchannel <- mclapply(channels, function(channel) 
+        gamma.ctl(object, channel=channel, allele=allele, parallel=parallel))
+      options("cores"=oldcores)
+    } else { 
+      perchannel <- lapply(channels, function(channel) 
+        gamma.ctl(object, channel=channel, allele=allele, parallel=parallel))
+    } 
     names(perchannel) <- channels
     return(perchannel)
   } # }}}
   if(is.null(allele)) { # {{{
-    perallele <- lapply(alleles, function(allele) {
-      gamma.signal(object, channel=channel, allele=allele, hard=hard)
-    })
+    if(parallel) {
+      perallele <- mclapply(alleles, function(allele) {
+        gamma.ctl(object, channel=channel, allele=allele, parallel=parallel)
+      })
+      options("cores"=oldcores)
+    } else {
+      perallele <- lapply(alleles, function(allele) {
+        gamma.ctl(object, channel=channel, allele=allele, parallel=parallel)
+      })
+    }
     names(perallele) <- alleles
-    return(perallele)
+    return(perallele) 
+  } # }}}
+
+  if(parallel) {
+    fg.params <- data.matrix(as.data.frame(mclapply(1:dim(object)[2],function(i)
+      gamma.mle(intensitiesByChannel(object[,i], channel, allele)))))
+  } else {
+    fg.params <- data.matrix(as.data.frame(lapply(1:dim(object)[2], function(i) 
+      gamma.mle(intensitiesByChannel(object[,i], channel, allele)))))
+  }
+  bg.params <- gamma.bg(object, channel)
+  colnames(fg.params) <- sampleNames(object)
+  stopifnot(identical(colnames(fg.params), colnames(bg.params)))
+  rownames(bg.params) <- paste('bg', rownames(bg.params), sep='.')
+  rownames(fg.params) <- paste('fg', rownames(fg.params), sep='.')
+  params <- t(rbind(fg.params, bg.params))
+
+  ## FIXME: use pvec instead
+  if(parallel) {
+    signal <- data.matrix(as.data.frame(mclapply(1:dim(object)[2], function(i) {
+      sapply( intensitiesByChannel(object[,i], channel, allele), function(x) {
+        gamma.conditional(x, params[i, ])
+      })
+    })))
+  } else {
+    signal <- data.matrix(as.data.frame(lapply(1:dim(object)[2], function(i) {
+      sapply( intensitiesByChannel(object[,i], channel, allele), function(x) {
+        gamma.conditional(x, params[i, ])
+      })
+    })))
+  }
+  colnames(signal) <- sampleNames(object)
+  rownames(signal) <- featureNames(object)[getProbesByChannel(object,channel)]
+  return(signal)
+
+} # }}}
+
+## FIXME: add a qa step for the remapped beta-mixture scheme or don't use it
+gamma.mix <- gamma.signal <- function(object, channel=NULL, allele=NULL, channels=c('Cy3','Cy5'), alleles=c('signal','noise'), hard=F, parallel=F) { # {{{
+
+  if(parallel) { # {{{
+    require(multicore)
+    oldcores <- options()$cores
+    if( is.null(channel) ) options()$cores <- max(2, options()$cores/2)
+    if( is.null(allele) ) options()$cores <- max(2, options()$cores/2)
+  } # }}}
+  if(is.null(channel)) { # {{{
+    if(parallel) { 
+      perchannel <- mclapply(channels, function(channel) 
+        gamma.signal(object, channel=channel, allele=allele, parallel=parallel))
+    } else { 
+      perchannel <- lapply(channels, function(channel) 
+        gamma.signal(object, channel=channel, allele=allele, parallel=parallel))
+    } 
+    names(perchannel) <- channels
+    options()$cores <- oldcores
+    return(perchannel)
+  } # }}}
+  if(is.null(allele)) { # {{{
+    if(parallel) {
+      perallele <- mclapply(alleles, function(allele) {
+        gamma.signal(object, channel=channel, allele=allele, parallel=parallel)
+      })
+    } else {
+      perallele <- lapply(alleles, function(allele) {
+        gamma.signal(object, channel=channel, allele=allele, parallel=parallel)
+      })
+    }
+    names(perallele) <- alleles
+    options()$cores <- oldcores
+    return(perallele) 
   } # }}}
 
   params <- rbind(gamma.fg(object, channel, allele), gamma.bg(object, channel))
@@ -161,16 +249,12 @@ gamma.signal <- function(object, channel=NULL, allele=NULL, channels=c('Cy3','Cy
   totals <- rbind(allelic(object, channel=channel, hard=hard)[[allele]], params)
   pars <- (nrow(totals)-nrow(params)+1):(nrow(totals))
 
-  browser()
-
   ## should parallelize here 
   signal <- sapply(1:dim(totals)[2], function(j) {
     sapply(totals[-pars,j], gamma.conditional, params=totals[pars,j])
   })
 
   ## Now reconstruct the methylated and unmethylated bg-corrected signals,
-  ## using the adjusted betas to push them towards the "appropriate" place.
-  ##
   ## FIXME: either parallelize this or rewrite it in C++
   lapply(signal, function(x) gamma.conditional(x, pars))
 
@@ -216,4 +300,31 @@ spcor.plot <- function(x, ID=NULL, parallel=TRUE) { # {{{
     lines( density(na.omit(spcs[[levelses[l]]])), 
            col=(l%%nlevels(ID))+1, lty=2 )
   }
+} # }}}
+
+## FIXME: switch to using C++ and/or OpenMP to speed this up tolerably
+## FIXME: adjust negative and positive controls along with analytic probes
+## FIXME: add a log entry for gamma deconvolution and note how it was done
+gamma.bgcorr <- function(object, how='controls', parallel=F) { # {{{
+  
+  if(annotation(object)=='HumanMethylation450k') stop('450ks not supported yet')
+
+  ## FIXME: use switch()
+  if( how %in% c('mixture','mix') ) {
+    signal <- gamma.mix(object, parallel=parallel)
+  } else if( how %in% c('controls','ctl') ) {
+    signal <- gamma.ctl(object, parallel=parallel)
+  }
+  Ms <- methylated(object)
+  Us <- unmethylated(object)
+  for( ch in names(signal) ) {
+    Ms[ getProbesByChannel(object, ch), ] <- signal[[ch]][['methylated']]
+    Us[ getProbesByChannel(object, ch), ] <- signal[[ch]][['unmethylated']]
+  }
+  cloned <- clone(object)
+  methylated(cloned) <- Ms
+  unmethylated(cloned) <- Us
+  pval.detect(cloned) <- 0.05
+  return(cloned)
+
 } # }}}
