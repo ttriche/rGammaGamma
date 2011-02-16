@@ -244,21 +244,40 @@ gamma.mix <- gamma.signal <- function(object, channel=NULL, allele=NULL, channel
     return(perallele) 
   } # }}}
 
-  params <- rbind(gamma.fg(object, channel, allele), gamma.bg(object, channel))
-  rownames(params) <- c('fg.shape','fg.scale','bg.shape','bg.scale')
-  totals <- rbind(allelic(object, channel=channel, hard=hard)[[allele]], params)
-  pars <- (nrow(totals)-nrow(params)+1):(nrow(totals))
+  if(parallel) {
+    fg.params <- data.matrix(as.data.frame(mclapply(1:dim(object)[2],function(i)
+      gamma.fg(object, channel, allele))))
+  } else {
+    fg.params <- data.matrix(as.data.frame(lapply(1:dim(object)[2], function(i) 
+      gamma.fg(object, channel, allele))))
+  }
+  bg.params <- gamma.bg(object, channel)
+  colnames(fg.params) <- sampleNames(object)
+  stopifnot(identical(colnames(fg.params), colnames(bg.params)))
+  rownames(bg.params) <- paste('bg', rownames(bg.params), sep='.')
+  rownames(fg.params) <- paste('fg', rownames(fg.params), sep='.')
+  params <- t(rbind(fg.params, bg.params))
 
-  ## should parallelize here 
-  signal <- sapply(1:dim(totals)[2], function(j) {
-    sapply(totals[-pars,j], gamma.conditional, params=totals[pars,j])
-  })
+  ## here is where we diverge from gamma convolution against bg controls...
+  ## instead of intensitiesByChannel, we have to use pseudo-totals from allelic
 
-  ## Now reconstruct the methylated and unmethylated bg-corrected signals,
-  ## FIXME: either parallelize this or rewrite it in C++
-  lapply(signal, function(x) gamma.conditional(x, pars))
-
-  ## recover M/U as pi0*signal + (1-pi0)*noise for each allele
+  ## FIXME: use pvec instead
+  if(parallel) {
+    signal <- data.matrix(as.data.frame(mclapply(1:dim(object)[2], function(i) {
+      sapply( intensitiesByChannel(object[,i], channel, allele), function(x) {
+        gamma.conditional(x, params[i, ])
+      })
+    })))
+  } else {
+    signal <- data.matrix(as.data.frame(lapply(1:dim(object)[2], function(i) {
+      sapply( intensitiesByChannel(object[,i], channel, allele), function(x) {
+        gamma.conditional(x, params[i, ])
+      })
+    })))
+  }
+  colnames(signal) <- sampleNames(object)
+  rownames(signal) <- featureNames(object)[getProbesByChannel(object,channel)]
+  return(signal)
 
 } # }}}
 
