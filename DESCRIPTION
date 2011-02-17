@@ -1,10 +1,10 @@
 Package: rGammaGamma
 Type: Package
-Title: This is a small package to work with Gamma convolutions.
+Title: Explicit and implicit Gamma convolutions for SNP and methylation arrays.
 Depends: gsl
 LinkingTo: Rcpp
-Version: 0.9.1
-Date: 2011-2-14
+Version: 0.9.9
+Date: 2011-2-16
 Author: Tim Triche, Jr.
 Maintainer: Tim Triche, Jr. <tim.triche@gmail.com>
 Description: This package implements a Gamma convolution model for background.
