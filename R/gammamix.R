@@ -180,9 +180,7 @@ gamma.ctl <- function(object, channel=NULL, allele=NULL, channels=c('Cy3','Cy5')
 gamma.mix <- gamma.signal <- function(object, channel=NULL, channels=c('Cy3','Cy5'), parallel=F) { # {{{
 
 ## FIXME: use the lstply() hack everywhere else, too :-)
-  if(parallel) { # {{{
-    require(multicore)
-  } # }}}
+  if(parallel) require(multicore)
   if(is.null(channel)) { # {{{
     if(parallel) lstply <- mclapply else lstply <- lapply
     perchannel <- lstply(channels, function(channel) 
