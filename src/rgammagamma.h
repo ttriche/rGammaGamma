@@ -12,6 +12,8 @@ RcppExport SEXP rgammagamma_binary_EM(SEXP pi0);
 
 RcppExport SEXP rgammagamma_ternary_EM(SEXP pi0);
 
+RcppExport SEXP rgammagamma_gamma_mle( SEXP x );
+
 RcppExport SEXP rgammagamma_gamma_wmle( SEXP x, SEXP w );
 
 NumericVector complement( NumericVector x );
@@ -31,6 +33,8 @@ double weighted_var( NumericVector x, NumericVector w );
 extern "C" double digam( double x );
 
 extern "C" double trigam( double x );
+
+NumericVector gamma_mle( NumericVector x );
 
 NumericVector gamma_wmle( NumericVector x, NumericVector w );
 

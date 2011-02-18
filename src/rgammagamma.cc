@@ -2,7 +2,7 @@
 #define TOLERANCE 0.001
 #define MAXITER 25
 
-SEXP rgammagamma_binary_EM( SEXP pi0 ) { // {{{
+RcppExport SEXP rgammagamma_binary_EM( SEXP pi0 ) { // {{{
  
   double ll0, ll1;
   NumericVector x(pi0) ;
@@ -39,7 +39,7 @@ SEXP rgammagamma_binary_EM( SEXP pi0 ) { // {{{
 
 } // }}}
 
-SEXP rgammagamma_ternary_EM( SEXP pi0 ) { // {{{
+RcppExport SEXP rgammagamma_ternary_EM( SEXP pi0 ) { // {{{
  
   double ll0, ll1;
   NumericVector x(pi0) ;
@@ -78,11 +78,18 @@ SEXP rgammagamma_ternary_EM( SEXP pi0 ) { // {{{
 
 } // }}}
 
-SEXP rgammagamma_gamma_wmle( SEXP x, SEXP w ) { // {{{
+RcppExport SEXP rgammagamma_gamma_wmle( SEXP x, SEXP w ) { // {{{
 
   NumericVector xx(x);
   NumericVector ww(w);
-  return( Rcpp::wrap(gamma_wmle( x, w )) );
+  return( Rcpp::wrap(gamma_wmle( xx, ww )) );
+
+} // }}}
+
+RcppExport SEXP rgammagamma_gamma_mle( SEXP x ) { // {{{
+
+  NumericVector xx(x);
+  return( Rcpp::wrap(gamma_mle(xx)) );
 
 } // }}}
 
@@ -199,6 +206,37 @@ NumericVector gamma_wmle( NumericVector x, NumericVector w ) { // {{{
   double mlnx = weighted_mean( log(pmax(x,1)), w );
   double mx = weighted_mean( pmax(x,1), w ); 
   double lnmx = log( mx );
+  double a = 0.5/(lnmx-mlnx);
+  double lna = log(a); 
+  double z = a;
+
+  try {
+    // from Minka 2002
+    for( int i = 1; i < MAXITER; i++ ) { // usually in under 5 iterations
+      z = 1/((1/a)+((mlnx-lnmx+log(a)-digam(a))/(((1/a)-trigam(a))*(a*a))));
+      if( abs(z - a) < TOLERANCE ) break; 
+      else a = z;
+    }
+    pars[0] = a;
+    pars[1] = mx/a;
+  } catch( std::exception &ex ) {
+    forward_exception_to_r( ex );
+  } catch(...) {
+    ::Rf_error( "C++ exception (unknown reason)" );
+  }
+  return(pars);
+
+} // }}}
+
+NumericVector gamma_mle( NumericVector x ) { // {{{
+
+  // no NAs allowed!
+  NumericVector pars(2);
+  int n = x.size();
+
+  double mlnx = sum(log(pmax(x,1)))/n;
+  double mx = sum(pmax(x,1))/n;
+  double lnmx = log(mx);
   double a = 0.5/(lnmx-mlnx);
   double lna = log(a); 
   double z = a;
