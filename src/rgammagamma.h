@@ -43,8 +43,7 @@ double gamma_conv( double x, NumericVector params );
 
 NumericMatrix gamma_conv( NumericMatrix x, NumericMatrix params );
 
-// problematic due to type casting
-/* class intfn { 
+/* class intfn {  // {{{ problematic due to type casting
   public:
   double operator()(double t, double g, double a, double d, double b) const {
     return(
@@ -54,6 +53,6 @@ NumericMatrix gamma_conv( NumericMatrix x, NumericMatrix params );
     //(1/(beta(g,d)*hyperg_1F1(g, g+d, t*((1/b)-(1/a)), strict=F)))*x
     );
   }
-}; */
+}; */ // }}}
 
 #endif
