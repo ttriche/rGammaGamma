@@ -173,8 +173,8 @@ gamma.ctl <- function(object, channel=NULL, allele=NULL, channels=c('Cy3','Cy5')
   bg.params <- gamma.bg(object, channel)
   colnames(fg.params) <- sampleNames(object)
   stopifnot(identical(colnames(fg.params), colnames(bg.params)))
-  rownames(bg.params) <- paste('bg', rownames(bg.params), sep='.')
-  rownames(fg.params) <- paste('fg', rownames(fg.params), sep='.')
+  rownames(bg.params) <- c('bg.shape','bg.scale')
+  rownames(fg.params) <- c('fg.shape','fg.scale')
   params <- t(rbind(fg.params, bg.params))
 
   signal <- data.matrix(as.data.frame(lstply(1:dim(object)[2], function(i) {
