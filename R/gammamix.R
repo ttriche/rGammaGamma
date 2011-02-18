@@ -205,8 +205,8 @@ gamma.mix <- gamma.signal <- function(object, channel=NULL, channels=c('Cy3','Cy
   fg.params <- both.params$signal
   bg.params <- both.params$noise
   stopifnot(identical(colnames(fg.params), colnames(bg.params)))
-  rownames(bg.params) <- paste('bg', rownames(bg.params), sep='.')
-  rownames(fg.params) <- paste('fg', rownames(fg.params), sep='.')
+  rownames(bg.params) <- c('bg.shape','bg.scale')
+  rownames(fg.params) <- c('fg.shape','fg.scale')
   params <- t(rbind(fg.params, bg.params))
 
   ## here is where we diverge from gamma convolution against bg controls...
