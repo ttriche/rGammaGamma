@@ -208,7 +208,8 @@ gamma.mix <- gamma.signal <- function(object, channel=NULL, channels=c('Cy3','Cy
   rownames(bg.params) <- c('bg.shape','bg.scale')
   rownames(fg.params) <- c('fg.shape','fg.scale')
   params <- t(rbind(fg.params, bg.params))
-
+  ch <- channel
+    
   ## here is where we diverge from gamma convolution against bg controls...
   ## instead of intensitiesByChannel, we have to use pseudo-totals from allelic
   ints <- intensitiesByChannel(object, channel)
@@ -222,6 +223,7 @@ gamma.mix <- gamma.signal <- function(object, channel=NULL, channels=c('Cy3','Cy
       })
     })))
     colnames(persubject) <- sampleNames(object)
+    rownames(persubject) <- featureNames(object)[getProbesByChannel(object,ch)]
     persubject
   })
   names(signal) <- names(ints)
