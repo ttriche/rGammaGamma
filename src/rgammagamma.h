@@ -4,6 +4,7 @@
 #include <cmath>
 #include <Rcpp.h>
 #include <gsl/gsl_sf.h>
+#include "DEIntegrator.h"
 
 using namespace Rcpp;
 using namespace std;
@@ -37,5 +38,22 @@ extern "C" double trigam( double x );
 NumericVector gamma_mle( NumericVector x );
 
 NumericVector gamma_wmle( NumericVector x, NumericVector w );
+
+double gamma_conv( double x, NumericVector params );
+
+NumericMatrix gamma_conv( NumericMatrix x, NumericMatrix params );
+
+// problematic due to type casting
+/* class intfn { 
+  public:
+  double operator()(double t, double g, double a, double d, double b) const {
+    return(
+    // note the GSL fucntions for hyperg_1f1 and beta below
+    //
+    //(exp(x*((1/b)-(1/a)))*(t**(1-g-d))*((t-x)**(d-1))*(x**(g-1)))*
+    //(1/(beta(g,d)*hyperg_1F1(g, g+d, t*((1/b)-(1/a)), strict=F)))*x
+    );
+  }
+}; */
 
 #endif

@@ -1,6 +1,18 @@
 #include "rgammagamma.h"
-#define TOLERANCE 0.001
+#define TOLERANCE 0.0001
 #define MAXITER 25
+
+RCPP_MODULE(gamma) { // {{{
+  function("mle", &gamma_mle );
+  function("wmle", &gamma_wmle );
+} // }}}
+
+RCPP_MODULE(beta) { // {{{
+  function("xform", &beta_xform);
+  function("wmme", &beta_wmme);
+  function("wmle", &beta_wmle);
+  function("wll", &beta_wll);
+} // }}}
 
 RcppExport SEXP rgammagamma_binary_EM( SEXP pi0 ) { // {{{
  
@@ -256,5 +268,35 @@ NumericVector gamma_mle( NumericVector x ) { // {{{
     ::Rf_error( "C++ exception (unknown reason)" );
   }
   return(pars);
+
+} // }}}
+
+// project: move the conditional expectation integral from R to C++ (here)
+double gamma_conv( double x, NumericVector params ) { // {{{
+
+  double z;
+  if(x > (params(3)*params(4))+(3*sqrt(params(3))*params(4))) { // mu+sd.bg
+    z = x - (params(3)*params(4)); // just subtract the background mean
+  } else {
+    // intfn fn;
+    int evals;
+    double err;
+    // std::setprecision(10);
+    // z = DEIntegrator<intfn>::Integrate(fn, 0, x, 1e-6, evals, err);
+  }
+  return(z);
+
+} // }}}
+
+// project: stride through the columns/rows of a signal matrix for the integral
+NumericMatrix gamma_conv( NumericMatrix x, NumericMatrix params ) { // {{{
+
+  // walk through 'x' and 'params' 
+  for( int i = 0; i < x.ncol(); i++ ) {
+    for( int j = 0; i < x.nrow(); j++ ) {
+      x((j+1), (i+1)) = gamma_conv(x((j+1),(i+1)), params(_, (i+1)));
+    }
+  }
+  return(x);
 
 } // }}}
