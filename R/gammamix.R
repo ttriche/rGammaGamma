@@ -267,9 +267,7 @@ spcor.plot <- function(x, ID=NULL, parallel=TRUE) { # {{{
   }
 } # }}}
 
-## FIXME: switch to using C++ and/or OpenMP to speed this up tolerably
 ## FIXME: adjust negative and positive controls along with analytic probes
-## FIXME: add a log entry for gamma deconvolution and note how it was done
 gamma.bgcorr <- function(object, how='mixture', offset=15, parallel=F) { # {{{
   
   if(annotation(object)=='HumanMethylation450k') stop('450ks not supported yet')
