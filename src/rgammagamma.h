@@ -4,7 +4,7 @@
 #include <cmath>
 #include <Rcpp.h>
 #include <gsl/gsl_sf.h>
-#include "DEIntegrator.h"
+#include <gsl/gsl_integration.h>
 
 using namespace Rcpp;
 using namespace std;
@@ -31,9 +31,13 @@ double weighted_mean( NumericVector x, NumericVector w );
 
 double weighted_var( NumericVector x, NumericVector w );
 
+extern "C" double beta( double a, double b );
+
 extern "C" double digam( double x );
 
 extern "C" double trigam( double x );
+
+extern "C" double hyperg1f1( double a, double b, double x );
 
 NumericVector gamma_mle( NumericVector x );
 
@@ -41,18 +45,12 @@ NumericVector gamma_wmle( NumericVector x, NumericVector w );
 
 double gamma_conv( double x, NumericVector params );
 
-NumericMatrix gamma_conv( NumericMatrix x, NumericMatrix params );
+double gslfunc_example(double x, void * params);
 
-/* class intfn {  // {{{ problematic due to type casting
-  public:
-  double operator()(double t, double g, double a, double d, double b) const {
-    return(
-    // note the GSL fucntions for hyperg_1f1 and beta below
-    //
-    //(exp(x*((1/b)-(1/a)))*(t**(1-g-d))*((t-x)**(d-1))*(x**(g-1)))*
-    //(1/(beta(g,d)*hyperg_1F1(g, g+d, t*((1/b)-(1/a)), strict=F)))*x
-    );
-  }
-}; */ // }}}
+double gslint_example(double x, double t, void * params);
+
+double convfn(double x, double t, double g, double a, double d, double b);
+
+NumericMatrix gamma_conv( NumericMatrix x, NumericMatrix params );
 
 #endif

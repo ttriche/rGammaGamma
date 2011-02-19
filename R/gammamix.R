@@ -9,7 +9,7 @@ gamma.mme <- function(x) { # {{{
 } # }}}
 
 ## fast approximation to the full Gamma MLE via Minka (2002) at MS Research
-gamma.rmle <- function(x,w=NULL,niter=100,tol=0.000000001,minx=1) { # {{{
+gamma.mle <- function(x,w=NULL,niter=100,tol=0.000000001,minx=1) { # {{{
 
   if( is.null(w) ) w <- rep( 1, length(x) )
   meanlogx <- weighted.mean(log(pmax(x,minx)), w)
@@ -34,14 +34,10 @@ gamma.rmle <- function(x,w=NULL,niter=100,tol=0.000000001,minx=1) { # {{{
 ## faster approximation (in C++)
 gamma.cmle <- function(x,w=NULL) { # {{{
 
-  if( is.null(w) ) 
-    .Call('rgammagamma_gamma_mle', x)
-  else
-    .Call('rgammagamma_gamma_mle', x, w)
+  if( !is.null(w) ) .Call('rgammagamma_gamma_wmle', x, w)
+  else .Call('rgammagamma_gamma_mle', x)
 
 } # }}}
-
-gamma.mle <- gamma.cmle # default to running this in C++ 
 
 gamma.mode <- function(par) { # {{{
   ifelse(par['shape'] >= 1, (par['shape']-1)*par['scale'], 0)
