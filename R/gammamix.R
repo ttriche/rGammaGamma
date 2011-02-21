@@ -8,8 +8,9 @@ gamma.mme <- function(x) { # {{{
            scale=var(as.matrix(x),na.rm=T)/mean(as.matrix(x),na.rm=T)))
 } # }}}
 
+## FIXME: wrap this in a try() statement until the missing value bug is solved
 ## fast approximation to the full Gamma MLE via Minka (2002) at MS Research
-gamma.mle <- function(x,w=NULL,niter=100,tol=0.0001) { # {{{
+gamma.rmle <- function(x,w=NULL,niter=100,tol=0.001) { # {{{
 
   if( is.null(w) ) w <- rep( 1, length(x) )
   meanlogx <- weighted.mean(log(pmax(x,1)), w)
@@ -22,7 +23,7 @@ gamma.mle <- function(x,w=NULL,niter=100,tol=0.0001) { # {{{
   }
   for(i in 1:niter) { # usually converges in under 5 iterations
     a <- update.a(a0)
-    if(!is.numeric(a)) a = a0+(tol*2)
+    if(!is.numeric(abs(a0-a))) a = a0+(tol*2) # don't know why this is necessary
     if(abs(a0-a) < tol) break
     else a0 <- a 
   }
@@ -37,6 +38,13 @@ gamma.cmle <- function(x,w=NULL) { # {{{
   if( !is.null(w) ) .Call('rgammagamma_gamma_wmle', x, w)
   else .Call('rgammagamma_gamma_mle', x) # kind of dorky
 
+} # }}}
+
+## wrapped version of gamma.rmle() for now
+gamma.mle <- function(x, w=NULL) { # {{{
+  res <- try( gamma.rmle(x, w) ) ## or gamma.cmle(x, w)...
+  if(class(res) == 'try-error') return(gamma.mme(x))
+  else return(res)
 } # }}}
 
 gamma.mode <- function(par) { # {{{
