@@ -9,11 +9,11 @@ gamma.mme <- function(x) { # {{{
 } # }}}
 
 ## fast approximation to the full Gamma MLE via Minka (2002) at MS Research
-gamma.mle <- function(x,w=NULL,niter=100,tol=0.000000001,minx=1) { # {{{
+gamma.mle <- function(x,w=NULL,niter=100,tol=0.0001) { # {{{
 
   if( is.null(w) ) w <- rep( 1, length(x) )
-  meanlogx <- weighted.mean(log(pmax(x,minx)), w)
-  meanx <- weighted.mean(pmax(x,minx), w)
+  meanlogx <- weighted.mean(log(pmax(x,1)), w)
+  meanx <- weighted.mean(pmax(x,1), w)
   logmeanx <- log(meanx)
   a <- a0 <- (0.5/(logmeanx-meanlogx))  # from Minka 2002
   update.a <- function(a) {
@@ -22,11 +22,11 @@ gamma.mle <- function(x,w=NULL,niter=100,tol=0.000000001,minx=1) { # {{{
   }
   for(i in 1:niter) { # usually converges in under 5 iterations
     a <- update.a(a0)
+    if(!is.numeric(a)) a = a0+(tol*2)
     if(abs(a0-a) < tol) break
     else a0 <- a 
   }
   b <- meanx/a
-  # cat('Gamma MLE converged in',i,'iterations\n')
   return(c(shape=a, scale=b))
 
 } # }}}
@@ -35,7 +35,7 @@ gamma.mle <- function(x,w=NULL,niter=100,tol=0.000000001,minx=1) { # {{{
 gamma.cmle <- function(x,w=NULL) { # {{{
 
   if( !is.null(w) ) .Call('rgammagamma_gamma_wmle', x, w)
-  else .Call('rgammagamma_gamma_mle', x)
+  else .Call('rgammagamma_gamma_mle', x) # kind of dorky
 
 } # }}}
 
@@ -112,7 +112,7 @@ gamma.allelic <- gamma.fg <- function(object, channel=NULL, allele=NULL, channel
 } # }}}
 
 ## FIXME: move this to C++ as soon as humanly possible (ideally with matrix arg)
-gamma.conditional <- function(total, params, minx=1) { # {{{
+gamma.conditional <- function(total, params) { # {{{
 
   if(length(total) > 1) sapply(total, gamma.conditional, params=params)
   if(total > (params[3]*params[4])+(3*sqrt(params[3])*params[4])){ # mu+sd.bg
@@ -135,7 +135,7 @@ gamma.conditional <- function(total, params, minx=1) { # {{{
     ) # i.e., integrate(PrSignalGivenTotal, /* from */ 0, /* to */ total);
     if(class(res) == 'try-error') {
       if(total > d*b) return(total-(d*b))
-      else return(minx)
+      else return(1) # minimum sane value
     } else {
       return(res)
     }
