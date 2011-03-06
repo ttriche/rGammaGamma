@@ -9,7 +9,7 @@ gamma.mme <- function(x) { # {{{
 } # }}}
 
 ## fast approximation to the full Gamma MLE via Minka (2002) at MS Research
-gamma.rmle <- function(x,w=NULL,niter=100,tol=0.000000001,minx=1) { # {{{
+gamma.mle <- function(x,w=NULL,niter=100,tol=0.000000001,minx=1) { # {{{
 
   if( is.null(w) ) w <- rep( 1, length(x) )
   meanlogx <- weighted.mean(log(pmax(x,minx)), w)
@@ -31,17 +31,13 @@ gamma.rmle <- function(x,w=NULL,niter=100,tol=0.000000001,minx=1) { # {{{
 
 } # }}}
 
-## faster approximation (in C++)
+## faster approximation (in C++, but it seems to screw up multicore somehow)
 gamma.cmle <- function(x,w=NULL) { # {{{
 
-  if( is.null(w) ) 
-    .Call('rgammagamma_gamma_mle', x)
-  else
-    .Call('rgammagamma_gamma_mle', x, w)
+  if( !is.null(w) ) .Call('rgammagamma_gamma_wmle', x, w)
+  else .Call('rgammagamma_gamma_mle', x)
 
 } # }}}
-
-gamma.mle <- gamma.cmle # default to running this in C++ 
 
 gamma.mode <- function(par) { # {{{
   ifelse(par['shape'] >= 1, (par['shape']-1)*par['scale'], 0)
@@ -56,12 +52,54 @@ gamma.bg <- function(object, channel=NULL, channels=c('Cy3','Cy5')) { # {{{
   return(apply(negctls(object, channel), 2, function(z) gamma.mle(z)))
 } # }}}
 
+## FIXME: move this to C++
+gamma.miller.pars <- function(vec) { # {{{
+  c( p=prod(vec), q=sum(vec), r=length(vec), s=length(vec) )
+} # }}}
+
+## FIXME: move this to C++
+gamma.miller.posterior <- function(g.and.a, params) { # {{{
+
+  g0 = g.and.a[1]
+  a0 = g.and.a[2]
+  p = params[1]
+  q = params[2]
+  r = params[3]
+  s = params[4]
+  Z = gamma.miller.normconst(g0, p, q, r, s) 
+  g = ((p**(g0-1))*gamma((s*g0)+1)) / (Z*(q**(1-(s*g0)))*(gamma(g0)**r))
+  scalefn = NULL ## FINISH THIS
+  a = integrate(scalefn, 0, Inf)
+  return( shape=g, scale=a )
+
+} # }}}
+
+## FIXME: move this to C++
+gamma.miller.normconst <- function(g, p, q, r, s) { # {{{
+  fxn = function(g) ((p**(g-1))*gamma((s*g)+1))/((gamma(g)**r)*(q**((s*g)+1)))
+  integrate(fxn, 0, Inf)  
+} # }}}
+
+## FIXME: handle CpG stratification using (updated) annotations!
 gamma.bg.ebayes <- function(object, channel=NULL, channels=c('Cy3','Cy5')){ #{{{
-  
-  # pool the gamma parameter distributions to estimate hyperparameters 
-  
-  # integrate(marginalScale, 0, Inf)
-  # integrate(marginalShape, 0, Inf)
+
+  if(is.null(channel)) { # {{{
+    perchannel = lapply(channels, function(ch) gamma.bg.ebayes(object, ch))
+    names(perchannel) <- channels
+    return(perchannel)
+  } # }}}
+
+  # estimate priors from negative controls as outlined in Appendix I 
+  priors = apply(negctls(object, channel), 2, gamma.miller.pars)
+  params = apply(negctls(object, channel), 2, gamma.mle)
+  both = cbind(priors, params)
+
+  # normConstants = apply(both, 2, function(x) integrate(fZ, 0, Inf, params=x))
+  # integrate(marginalScale, 0, Inf) # update the shape within each stratum
+  # integrate(marginalShape, 0, Inf) # update the scale within each stratum
+
+  ## return updated per-stratum estimates (I figure this goes in the QC pData) 
+  return( posterior.params.per.property.plenum )
 
 } # }}}
 
