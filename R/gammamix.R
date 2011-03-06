@@ -8,13 +8,12 @@ gamma.mme <- function(x) { # {{{
            scale=var(as.matrix(x),na.rm=T)/mean(as.matrix(x),na.rm=T)))
 } # }}}
 
-## FIXME: wrap this in a try() statement until the missing value bug is solved
 ## fast approximation to the full Gamma MLE via Minka (2002) at MS Research
-gamma.rmle <- function(x,w=NULL,niter=100,tol=0.001) { # {{{
+gamma.mle <- function(x,w=NULL,niter=100,tol=0.000000001,minx=1) { # {{{
 
   if( is.null(w) ) w <- rep( 1, length(x) )
-  meanlogx <- weighted.mean(log(pmax(x,1)), w)
-  meanx <- weighted.mean(pmax(x,1), w)
+  meanlogx <- weighted.mean(log(pmax(x,minx)), w)
+  meanx <- weighted.mean(pmax(x,minx), w)
   logmeanx <- log(meanx)
   a <- a0 <- (0.5/(logmeanx-meanlogx))  # from Minka 2002
   update.a <- function(a) {
@@ -23,28 +22,21 @@ gamma.rmle <- function(x,w=NULL,niter=100,tol=0.001) { # {{{
   }
   for(i in 1:niter) { # usually converges in under 5 iterations
     a <- update.a(a0)
-    if(!is.numeric(abs(a0-a))) a = a0+(tol*2) # don't know why this is necessary
     if(abs(a0-a) < tol) break
     else a0 <- a 
   }
   b <- meanx/a
+  # cat('Gamma MLE converged in',i,'iterations\n')
   return(c(shape=a, scale=b))
 
 } # }}}
 
-## faster approximation (in C++)
+## faster approximation (in C++, but it seems to screw up multicore somehow)
 gamma.cmle <- function(x,w=NULL) { # {{{
 
   if( !is.null(w) ) .Call('rgammagamma_gamma_wmle', x, w)
-  else .Call('rgammagamma_gamma_mle', x) # kind of dorky
+  else .Call('rgammagamma_gamma_mle', x)
 
-} # }}}
-
-## wrapped version of gamma.rmle() for now
-gamma.mle <- function(x, w=NULL) { # {{{
-  res <- try( gamma.rmle(x, w) ) ## or gamma.cmle(x, w)...
-  if(class(res) == 'try-error') return(gamma.mme(x))
-  else return(res)
 } # }}}
 
 gamma.mode <- function(par) { # {{{
@@ -60,12 +52,54 @@ gamma.bg <- function(object, channel=NULL, channels=c('Cy3','Cy5')) { # {{{
   return(apply(negctls(object, channel), 2, function(z) gamma.mle(z)))
 } # }}}
 
+## FIXME: move this to C++
+gamma.miller.pars <- function(vec) { # {{{
+  c( p=prod(vec), q=sum(vec), r=length(vec), s=length(vec) )
+} # }}}
+
+## FIXME: move this to C++
+gamma.miller.posterior <- function(g.and.a, params) { # {{{
+
+  g0 = g.and.a[1]
+  a0 = g.and.a[2]
+  p = params[1]
+  q = params[2]
+  r = params[3]
+  s = params[4]
+  Z = gamma.miller.normconst(g0, p, q, r, s) 
+  g = ((p**(g0-1))*gamma((s*g0)+1)) / (Z*(q**(1-(s*g0)))*(gamma(g0)**r))
+  scalefn = NULL ## FINISH THIS
+  a = integrate(scalefn, 0, Inf)
+  return( shape=g, scale=a )
+
+} # }}}
+
+## FIXME: move this to C++
+gamma.miller.normconst <- function(g, p, q, r, s) { # {{{
+  fxn = function(g) ((p**(g-1))*gamma((s*g)+1))/((gamma(g)**r)*(q**((s*g)+1)))
+  integrate(fxn, 0, Inf)  
+} # }}}
+
+## FIXME: handle CpG stratification using (updated) annotations!
 gamma.bg.ebayes <- function(object, channel=NULL, channels=c('Cy3','Cy5')){ #{{{
-  
-  # pool the gamma parameter distributions to estimate hyperparameters 
-  
-  # integrate(marginalScale, 0, Inf)
-  # integrate(marginalShape, 0, Inf)
+
+  if(is.null(channel)) { # {{{
+    perchannel = lapply(channels, function(ch) gamma.bg.ebayes(object, ch))
+    names(perchannel) <- channels
+    return(perchannel)
+  } # }}}
+
+  # estimate priors from negative controls as outlined in Appendix I 
+  priors = apply(negctls(object, channel), 2, gamma.miller.pars)
+  params = apply(negctls(object, channel), 2, gamma.mle)
+  both = cbind(priors, params)
+
+  # normConstants = apply(both, 2, function(x) integrate(fZ, 0, Inf, params=x))
+  # integrate(marginalScale, 0, Inf) # update the shape within each stratum
+  # integrate(marginalShape, 0, Inf) # update the scale within each stratum
+
+  ## return updated per-stratum estimates (I figure this goes in the QC pData) 
+  return( posterior.params.per.property.plenum )
 
 } # }}}
 
@@ -120,7 +154,7 @@ gamma.allelic <- gamma.fg <- function(object, channel=NULL, allele=NULL, channel
 } # }}}
 
 ## FIXME: move this to C++ as soon as humanly possible (ideally with matrix arg)
-gamma.conditional <- function(total, params) { # {{{
+gamma.conditional <- function(total, params, minx=1) { # {{{
 
   if(length(total) > 1) sapply(total, gamma.conditional, params=params)
   if(total > (params[3]*params[4])+(3*sqrt(params[3])*params[4])){ # mu+sd.bg
@@ -143,7 +177,7 @@ gamma.conditional <- function(total, params) { # {{{
     ) # i.e., integrate(PrSignalGivenTotal, /* from */ 0, /* to */ total);
     if(class(res) == 'try-error') {
       if(total > d*b) return(total-(d*b))
-      else return(1) # minimum sane value
+      else return(minx)
     } else {
       return(res)
     }
@@ -275,7 +309,9 @@ spcor.plot <- function(x, ID=NULL, parallel=TRUE) { # {{{
   }
 } # }}}
 
+## FIXME: switch to using C++ and/or OpenMP to speed this up tolerably
 ## FIXME: adjust negative and positive controls along with analytic probes
+## FIXME: add a log entry for gamma deconvolution and note how it was done
 gamma.bgcorr <- function(object, how='mixture', offset=15, parallel=F) { # {{{
   
   if(annotation(object)=='HumanMethylation450k') stop('450ks not supported yet')
