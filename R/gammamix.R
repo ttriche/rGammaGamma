@@ -80,6 +80,15 @@ gamma.miller.normconst <- function(g, p, q, r, s) { # {{{
   integrate(fxn, 0, Inf)  
 } # }}}
 
+## FIXME: perhaps do this in C++ for pvalues
+gamma.x.gt.y <- function(x, params.x, params.y) { # {{{ thanks to John Cook
+  g <- params.x[1] # fg shape
+  a <- params.x[2] # fg scale
+  d <- params.y[1] # bg shape
+  b <- params.y[2] # bg scale
+  pbeta( a/(a+b), d, g)
+} # }}}
+
 ## FIXME: handle CpG stratification using (updated) annotations!
 gamma.bg.ebayes <- function(object, channel=NULL, channels=c('Cy3','Cy5')){ #{{{
 
