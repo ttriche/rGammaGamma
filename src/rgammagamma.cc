@@ -2,18 +2,6 @@
 #define TOLERANCE 0.0001
 #define MAXITER 25
 
-RCPP_MODULE(gamma) { // {{{
-  function("mle", &gamma_mle );
-  function("wmle", &gamma_wmle );
-} // }}}
-
-RCPP_MODULE(beta) { // {{{
-  function("xform", &beta_xform);
-  function("wmme", &beta_wmme);
-  function("wmle", &beta_wmle);
-  function("wll", &beta_wll);
-} // }}}
-
 RcppExport SEXP rgammagamma_binary_EM( SEXP pi0 ) { // {{{
  
   double ll0, ll1;
@@ -202,12 +190,20 @@ NumericVector beta_wmle( NumericVector x, NumericVector w ) { // {{{
 
 } // }}}
 
+extern "C" double beta( double a, double b ) { // {{{
+  return(gsl_sf_beta(a, b)); 
+} // }}}
+
 extern "C" double digam( double x ) { // {{{
   return(gsl_sf_psi(x));  // this is obnoxious
 } // }}}
 
 extern "C" double trigam( double x ) { // {{{
   return(gsl_sf_psi_1(x)); // this is obnoxious
+} // }}}
+
+extern "C" double hyperg1f1( double a, double b, double x ) { // {{{
+  return(gsl_sf_hyperg_1F1( a, b, x ));
 } // }}}
 
 NumericVector gamma_wmle( NumericVector x, NumericVector w ) { // {{{
@@ -298,5 +294,39 @@ NumericMatrix gamma_conv( NumericMatrix x, NumericMatrix params ) { // {{{
     }
   }
   return(x);
+
+} // }}}
+
+// example from GSL docs
+double gslfunc_example(double x, void * params) { // {{{
+  double alpha = *(double *) params;
+  double f = log(alpha*x) / sqrt(x);
+  return f;
+} // }}}
+
+// what I actually want to integrate using 
+double convfn(double x, void * params) {
+  double t = *(double *) params;
+  double g = t+1;
+  double a = t+2;
+  double d = t+3;
+  double b = t+4;
+  double num = x*exp(x*((1/b)-(1/a)))*pow(t,(1-g-d))*pow((t-x),d-1)*pow(x,g-1);
+  double denom = beta(g,d) * hyperg1f1(g, g+d, t*((1/b)-(1/a)));
+  return( num/denom );
+} // }}}
+
+double gslint_example(double x, double * params) { // {{{
+
+  // params includes t (total) as well as gamma, alpha, delta, beta 
+  gsl_integration_workspace * wsp = gsl_integration_workspace_alloc (1000);
+  double result, error;
+  gsl_function F;
+  F.function = &convfn;
+  F.params = &params;
+  double t = *(double *) params;
+  gsl_integration_qags(&F, 0, t, 1e-9, 1e-6, 1000, wsp, &result, &error); 
+  gsl_integration_workspace_free(wsp);
+  return result;
 
 } // }}}
