@@ -52,6 +52,75 @@ gamma.bg <- function(object, channel=NULL, channels=c('Cy3','Cy5')) { # {{{
   return(apply(negctls(object, channel), 2, function(z) gamma.mle(z)))
 } # }}}
 
+## FIXME: definitely move this to C++!
+gamma.nonspecific <- function(object,ch=NULL, w.beta=T, chs=c('Cy3','Cy5')){#{{{
+  if(is.null(ch)) {
+    perchannel <- lapply(chs, function(x) gamma.nonspecific(object,x))
+    return(cbind(perchannel[[1]], perchannel[[2]]))
+  }
+  if(ch=='Cy3') probes <- cy3(object)
+  if(ch=='Cy5') probes <- cy5(object)
+  ann <- paste(annotation(object),'ISCPGISLAND',sep='')
+  CpGi <- which(unlist(mget(featureNames(object),get(ann),ifnotfound=NA))==1)
+  nonCpGi <- which(unlist(mget(featureNames(object),get(ann),ifnotfound=NA))==0)
+  nonspecific <- sapply(1:dim(object)[2], function(i) {
+    low <- which(betas(object)[,i] < 0.15) %i% probes %i% CpGi
+    high <- which(betas(object)[,i] > 0.85) %i% probes %i% nonCpGi
+    if( w.beta ) {
+      piM <- (1-betas(object)[low,i])
+      piU <- betas(object)[high,i]
+    } else {
+      piM <- rep(1, length(low))
+      piU <- rep(1, length(high))
+    }
+    sdist <- c(methylated(object)[low,i]*piM, unmethylated(object)[high,i]*piU)
+    gamma.cmle(sdist)
+  })
+  rownames(nonspecific) <- paste(ch, 'bg', c('shape','scale'), sep='.')
+  return(t(nonspecific))
+} # }}}
+
+## FIXME: probably farm this out, too 
+gamma.from.SE <- function(mu, s) { # {{{ bead-level model
+  return( c(shape=(mu/s)*(mu/s), scale=(s*s)/mu) )
+} # }}}
+
+## FIXME: hook into methylumIDAT::pval.detect()
+gamma.detect <- function(object, use.SE=F) {
+
+  ## if estimates for the nonspecific intensity aren't already there, add them
+  if(!all(c('Cy5.bg.shape','Cy5.bg.scale','Cy3.bg.shape','Cy3.bg.scale') %in%
+          varLabels(object))) {
+    pData(object) <- cbind(pData(object), gamma.nonspecific(object))
+  }
+  chs <- c('Cy3','Cy5')
+  chfuns <- c('Cy3','Cy5')
+
+  ## if we have standard errors and bead numbers, use the evidence ratio 
+  if(all(c('methylated.SE','unmethylated.SE','methylated.N','unmethylated.N') 
+         %in% assayDataElementNames(object))) { 
+    message('Bead numbers and standard errors found, computing Pr(Xs>Xb)...') 
+    stop('LRT not finished yet')
+    pvals.by.channel <- lapply(chs, function(ch) {
+
+    })
+  } else { ## otherwise just compute the exceedence probability  
+    message('Standard errors and bead numbers missing, using pgamma(mean)...') 
+    pvals.by.channel <- lapply(chs, function(ch) {
+
+      apply(pmax(methylated(object)[pch[[ch]],],
+                 unmethylated(object)[pch[[ch]],]), c(1,2), function(x) {
+            pgamma(x, shape=pshape[[ch]], scale=pscale[[ch]])
+      })
+    })
+  }
+
+  pvals.merged <- betas(object) # get the right size of matrix
+  stop('pvalues now must be mapped back via cy3() and cy5()!')
+  return(pvals.merged)
+
+}
+
 ## FIXME: move this to C++
 gamma.miller.pars <- function(vec) { # {{{
   c( p=prod(vec), q=sum(vec), r=length(vec), s=length(vec) )
