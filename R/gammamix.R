@@ -52,8 +52,34 @@ gamma.bg <- function(object, channel=NULL, channels=c('Cy3','Cy5')) { # {{{
   return(apply(negctls(object, channel), 2, function(z) gamma.mle(z)))
 } # }}}
 
+## for plotting and comparing the results of gamma.mixest vs. real data
+make.fn <- function(ests,channel,allele,bgorfg,type=c('rgamma','dgamma')){ # {{{
+  if(type=='rgamma') {
+    return(
+      function(n) {
+        rgamma(n, shape=ests[paste(channel,allele,bgorfg,'shape',sep='.')],
+                  scale=ests[paste(channel,allele,bgorfg,'scale',sep='.')])
+      }
+    )
+  }
+  if(type=='dgamma') {
+    return(
+      function(x) {
+        rgamma(x, shape=ests[paste(channel,allele,bgorfg,'shape',sep='.')],
+                  scale=ests[paste(channel,allele,bgorfg,'scale',sep='.')])
+      }
+    )
+  }
+} # }}}
+make.dgamma.fn <- function(ests,channel,allele,bgorfg) { # {{{
+  make.fn(ests, channel, allele, bgorfg, type='dgamma')
+} # }}}
+make.rgamma.fn <- function(ests,channel,allele,bgorfg) { # {{{
+  make.fn(ests, channel, allele, bgorfg, type='rgamma')
+} # }}}
+
 ## FIXME: definitely move this to C++!
-gamma.nonspecific <- function(object, ch=NULL, al=NULL, sp=T, w.beta=F, als=c('methylated','unmethylated'), chs=c('Cy3','Cy5')) {# {{{
+gamma.mixest <- function(object, ch=NULL, al=NULL, sp=T, w.beta=F, als=c('methylated','unmethylated'), chs=c('Cy3','Cy5'), cuts=c(.15,.85),use.CpGi=T, confine=F, verbose=F ){ # {{{
   if(is.null(ch)) {
     perchannel <- lapply(chs, function(x) gamma.nonspecific(object,x,al,sp=sp))
     return(cbind(perchannel[[1]], perchannel[[2]]))
@@ -65,12 +91,20 @@ gamma.nonspecific <- function(object, ch=NULL, al=NULL, sp=T, w.beta=F, als=c('m
   if(ch=='Cy3') probes <- cy3(object)
   if(ch=='Cy5') probes <- cy5(object)
   ann <- paste(annotation(object),'ISCPGISLAND',sep='')
-  CpGi <- which(unlist(mget(featureNames(object),get(ann),ifnotfound=NA))==1)
-  nonCpGi <- which(unlist(mget(featureNames(object),get(ann),ifnotfound=NA))==0)
+  if(use.CpGi) {
+    CpGi <- which(unlist(mget(featureNames(object),get(ann),ifnotfound=NA))==1)
+    nonCpGi<-which(unlist(mget(featureNames(object),get(ann),ifnotfound=NA))==0)
+  } else { 
+    CpGi <- nonCpGi <- 1:dim(object)[1]
+  }
+  other <- list(methylated='unmethylated', unmethylated='methylated')
+  alnm <- lapply(names(other), function(al) toupper(substr(al, 1, 1)))
+  names(alnm) <- names(other)
+
+  # this next part might be ideal for multicore
   nonspecific <- sapply(1:dim(object)[2], function(i) {
-    low <- which(betas(object)[,i] < 0.15) %i% probes %i% CpGi
-    high <- which(betas(object)[,i] > 0.85) %i% probes %i% nonCpGi
-    probes <- list(methylated=low, unmethylated=high)
+    probes <- list(unmethylated=(which(betas(object)[,i] < cuts[1]) %i% CpGi),
+                   methylated=(which(betas(object)[,i] > cuts[2]) %i% nonCpGi))
     if( w.beta ) {
       piM <- (1-betas(object)[low,i])
       piU <- betas(object)[high,i]
@@ -79,23 +113,70 @@ gamma.nonspecific <- function(object, ch=NULL, al=NULL, sp=T, w.beta=F, als=c('m
     }
     pi0 <- list(methylated=piM, unmethylated=piU)
     if(sp) { # split M and U 
-      sdist <- assayDataElement(object, al)[ probes[[al]], i ] * pi0[[al]]
-      message('used ', length(sdist), ' probes to estimate bg ',
-              'for ', ch, ' ', al, ' probes on ', sampleNames(object)[i])
-      gamma.cmle(sdist)
+
+      ## FIXME: should I use > 0.85 and < 0.15 to estimate FG, or BG?!?
+      if(confine) {
+        ndist <- assayDataElement(object,other[[al]])[probes[[al]],i]
+        sdist <- assayDataElement(object,al)[probes[[al]],i]
+      } else { 
+        ndist <- assayDataElement(object,other[[al]])[probes[[other[[al]]]],i]
+        sdist <- assayDataElement(object,al)[probes[[al]],i]
+      }
+      if(verbose) {
+        message('used ',length(ndist),' probes to estimate ',ch,' ',other[[al]],
+                ' nonspecificity on ', sampleNames(object)[i])
+        message('used ',length(sdist),' probes to estimate ',ch,' ', al, 
+                ' specificity on ', sampleNames(object)[i])
+      }
+      c( gamma.cmle(ndist), gamma.cmle(sdist) )
     } else {
-      sdist <- c(methylated(object)[low,i]*piM,unmethylated(object)[high,i]*piU)
+      ndist <- c(methylated(object)[low,i]*piM,unmethylated(object)[high,i]*piU)
       gamma.cmle(sdist)
     }
   })
   if(sp) {
-    alnm <- toupper(substr(al, 1, 1))
-    rownames(nonspecific) <- paste(ch, alnm, 'bg', c('shape','scale'), sep='.')
+    rownms <- c( paste(ch, alnm[[other[[al]]]],'bg',c('shape','scale'),sep='.'),
+                 paste(ch, alnm[[al]], 'fg', c('shape','scale'), sep='.') )
+    rownames(nonspecific) <- rownms # includes specific/fg params, too
   } else { 
     rownames(nonspecific) <- paste(ch, 'bg', c('shape','scale'), sep='.')
   }
   nonspec <- (t(nonspecific))
   rownames(nonspec) <- sampleNames(object)
+  return(nonspec)
+} # }}}
+
+## just get the damned off-channel estimates
+gamma.nonspecific <- function(object,ch=NULL,chs=c('Cy3','Cy5'),use.U=F,cuts=c(0.05, 0.85),CpG=F) { # {{{
+  if(is.null(ch)) { # {{{
+    perchannel <- lapply(chs, function(ch) {
+      nonspec = gamma.nonspecific(object,ch=ch,use.U=use.U,cuts=cuts)
+      colnames(nonspec) = paste(ch, colnames(nonspec), sep='.')
+      nonspec
+    })
+    return(cbind(perchannel[[1]], perchannel[[2]]))
+  } # }}}
+  if(ch=='Cy3') probes <- cy3(object)
+  if(ch=='Cy5') probes <- cy5(object)
+  als = c( 'M', 'U' )
+  pars = c( 'shape', 'scale' )
+  nonspecific <- sapply(1:dim(object)[2], function(i) {
+    bv = (methylated(object)[probes,i]+1)/(total.intensity(object)[probes,i]+2)
+    low = which( bv < cuts[1] )
+    high = which( bv > cuts[2] )
+    est = gamma.mle(methylated(object[low,i]))
+    if(use.U) {
+      est = c(est, gamma.mle(unmethylated(object[high,i])))
+      nms = unlist(sapply(als,function(x)paste(x,'bg',pars,sep='.'),simplify=F))
+      names(est) = nms
+    } else {
+      nms = paste('bg',pars,sep='.')
+    }
+    names(est) = nms
+    est
+  })
+  nonspec <- t(nonspecific)
+  rownames(nonspec) = sampleNames(object)
   return(nonspec)
 } # }}}
 
@@ -105,7 +186,7 @@ gamma.from.SE <- function(mu, s) { # {{{ bead-level model
 } # }}}
 
 ## FIXME: hook into methylumIDAT::pval.detect()
-gamma.detect <- function(object, use.SE=F) {
+gamma.detect <- function(object, use.SE=F) { # {{{
 
   ## if estimates for the nonspecific intensity aren't already there, add them
   if(!all(c('Cy5.bg.shape','Cy5.bg.scale','Cy3.bg.shape','Cy3.bg.scale') %in%
@@ -138,7 +219,7 @@ gamma.detect <- function(object, use.SE=F) {
   stop('pvalues now must be mapped back via cy3() and cy5()!')
   return(pvals.merged)
 
-}
+} # }}}
 
 ## FIXME: move this to C++
 gamma.miller.pars <- function(vec) { # {{{
@@ -324,9 +405,9 @@ gamma.ctl <- function(object, channel=NULL, allele=NULL, channels=c('Cy3','Cy5')
 } # }}}
 
 ## FIXME: add a qa step for the remapped beta-mixture scheme or don't use it
-gamma.mix <- gamma.signal <- function(object, channel=NULL, channels=c('Cy3','Cy5'), parallel=F) { # {{{
+gamma.mix <- gamma.signal <- function(object, channel=NULL, channels=c('Cy3','Cy5'), parallel=F, al=NULL, alleles=c('methylated','unmethylated'), sp=T, how='nonspecific') { # {{{
 
-## FIXME: use the lstply() hack everywhere else, too :-)
+  ## FIXME: use the lstply() hack everywhere else, too :-)
   if(parallel) require(multicore)
   if(is.null(channel)) { # {{{
     if(parallel) lstply <- mclapply else lstply <- lapply
@@ -336,18 +417,20 @@ gamma.mix <- gamma.signal <- function(object, channel=NULL, channels=c('Cy3','Cy
     return(perchannel)
   } # }}}
 
+  ## here is where we diverge from gamma convolution against bg controls...
+  ## instead of intensitiesByChannel, we have to use pseudo-totals from allelic
+  ints <- intensitiesByChannel(object, channel)
+
+  ## FIXME: default to using gamma.nonspecific()
+  if(sp) both.params <- gamma.nonspecific(object, channel)
   both.params <- gamma.fg(object, channel)
   fg.params <- both.params$signal
-  bg.params <- both.params$noise
+  bg.params <- gamma.nonspecific(object, channel)
   stopifnot(identical(colnames(fg.params), colnames(bg.params)))
   rownames(bg.params) <- c('bg.shape','bg.scale')
   rownames(fg.params) <- c('fg.shape','fg.scale')
   params <- t(rbind(fg.params, bg.params))
   ch <- channel
-    
-  ## here is where we diverge from gamma convolution against bg controls...
-  ## instead of intensitiesByChannel, we have to use pseudo-totals from allelic
-  ints <- intensitiesByChannel(object, channel)
 
   ## FIXME: use pvec or just straight C++
   if(parallel) lstply <- mclapply else lstply <- lapply
