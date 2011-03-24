@@ -53,10 +53,14 @@ gamma.bg <- function(object, channel=NULL, channels=c('Cy3','Cy5')) { # {{{
 } # }}}
 
 ## FIXME: definitely move this to C++!
-gamma.nonspecific <- function(object,ch=NULL, w.beta=T, chs=c('Cy3','Cy5')){#{{{
+gamma.nonspecific <- function(object, ch=NULL, al=NULL, sp=T, w.beta=F, als=c('methylated','unmethylated'), chs=c('Cy3','Cy5')) {# {{{
   if(is.null(ch)) {
-    perchannel <- lapply(chs, function(x) gamma.nonspecific(object,x))
+    perchannel <- lapply(chs, function(x) gamma.nonspecific(object,x,al,sp=sp))
     return(cbind(perchannel[[1]], perchannel[[2]]))
+  }
+  if(sp && is.null(al)) {
+    perallele <- lapply(als, function(a) gamma.nonspecific(object,ch,a,sp=sp))
+    return(cbind(perallele[[1]], perallele[[2]])) 
   }
   if(ch=='Cy3') probes <- cy3(object)
   if(ch=='Cy5') probes <- cy5(object)
@@ -66,18 +70,33 @@ gamma.nonspecific <- function(object,ch=NULL, w.beta=T, chs=c('Cy3','Cy5')){#{{{
   nonspecific <- sapply(1:dim(object)[2], function(i) {
     low <- which(betas(object)[,i] < 0.15) %i% probes %i% CpGi
     high <- which(betas(object)[,i] > 0.85) %i% probes %i% nonCpGi
+    probes <- list(methylated=low, unmethylated=high)
     if( w.beta ) {
       piM <- (1-betas(object)[low,i])
       piU <- betas(object)[high,i]
     } else {
-      piM <- rep(1, length(low))
-      piU <- rep(1, length(high))
+      piM <- piU <- 1
     }
-    sdist <- c(methylated(object)[low,i]*piM, unmethylated(object)[high,i]*piU)
-    gamma.cmle(sdist)
+    pi0 <- list(methylated=piM, unmethylated=piU)
+    if(sp) { # split M and U 
+      sdist <- assayDataElement(object, al)[ probes[[al]], i ] * pi0[[al]]
+      message('used ', length(sdist), ' probes to estimate bg ',
+              'for ', ch, ' ', al, ' probes on ', sampleNames(object)[i])
+      gamma.cmle(sdist)
+    } else {
+      sdist <- c(methylated(object)[low,i]*piM,unmethylated(object)[high,i]*piU)
+      gamma.cmle(sdist)
+    }
   })
-  rownames(nonspecific) <- paste(ch, 'bg', c('shape','scale'), sep='.')
-  return(t(nonspecific))
+  if(sp) {
+    alnm <- toupper(substr(al, 1, 1))
+    rownames(nonspecific) <- paste(ch, alnm, 'bg', c('shape','scale'), sep='.')
+  } else { 
+    rownames(nonspecific) <- paste(ch, 'bg', c('shape','scale'), sep='.')
+  }
+  nonspec <- (t(nonspecific))
+  rownames(nonspec) <- sampleNames(object)
+  return(nonspec)
 } # }}}
 
 ## FIXME: probably farm this out, too 
