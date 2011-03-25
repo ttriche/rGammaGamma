@@ -146,40 +146,6 @@ gamma.mixest <- function(object, ch=NULL, al=NULL, sp=T, w.beta=F, als=c('methyl
   return(nonspec)
 } # }}}
 
-## just get the damned off-channel estimates
-gamma.nonspecific <- function(object,ch=NULL,chs=c('Cy3','Cy5'),use.U=F,cuts=c(0.05, 0.85),CpG=F) { # {{{
-  if(is.null(ch)) { # {{{
-    perchannel <- lapply(chs, function(ch) {
-      nonspec = gamma.nonspecific(object,ch=ch,use.U=use.U,cuts=cuts)
-      colnames(nonspec) = paste(ch, colnames(nonspec), sep='.')
-      nonspec
-    })
-    return(cbind(perchannel[[1]], perchannel[[2]]))
-  } # }}}
-  if(ch=='Cy3') probes <- cy3(object)
-  if(ch=='Cy5') probes <- cy5(object)
-  als = c( 'M', 'U' )
-  pars = c( 'shape', 'scale' )
-  nonspecific <- sapply(1:dim(object)[2], function(i) {
-    bv = (methylated(object)[probes,i]+1)/(total.intensity(object)[probes,i]+2)
-    low = which( bv < cuts[1] )
-    high = which( bv > cuts[2] )
-    est = gamma.mle(methylated(object[low,i]))
-    if(use.U) {
-      est = c(est, gamma.mle(unmethylated(object[high,i])))
-      nms = unlist(sapply(als,function(x)paste(x,'bg',pars,sep='.'),simplify=F))
-      names(est) = nms
-    } else {
-      nms = paste('bg',pars,sep='.')
-    }
-    names(est) = nms
-    est
-  })
-  nonspec <- t(nonspecific)
-  rownames(nonspec) = sampleNames(object)
-  return(nonspec)
-} # }}}
-
 ## FIXME: probably farm this out, too 
 gamma.from.SE <- function(mu, s) { # {{{ bead-level model
   return( c(shape=(mu/s)*(mu/s), scale=(s*s)/mu) )
@@ -400,6 +366,142 @@ gamma.ctl <- function(object, channel=NULL, allele=NULL, channels=c('Cy3','Cy5')
   })))
   colnames(signal) <- sampleNames(object)
   rownames(signal) <- featureNames(object)[getProbesByChannel(object,channel)]
+  return(signal)
+
+} # }}}
+
+## just get the damned off-channel estimates
+gamma.nonspecific <- function(object,ch=NULL,chs=c('Cy3','Cy5'),use.U=F,cuts=c(0.05, 0.85),CpG=F) { # {{{
+  if(is.null(ch)) { # {{{
+    perchannel <- lapply(chs, function(ch) {
+      nonspec = gamma.nonspecific(object,ch=ch,use.U=use.U,cuts=cuts)
+      colnames(nonspec) = paste(ch, colnames(nonspec), sep='.')
+      nonspec
+    })
+    return(cbind(perchannel[[1]], perchannel[[2]]))
+  } # }}}
+  if(is.null(ch)) { # {{{
+    perchannel <- lapply(chs, function(ch) {
+      nonspec = gamma.nonspecific(object,ch=ch,use.U=use.U,cuts=cuts)
+      colnames(nonspec) = paste(ch, colnames(nonspec), sep='.')
+      nonspec
+    })
+    return(cbind(perchannel[[1]], perchannel[[2]]))
+  } # }}}
+  if(ch=='Cy3') probes <- cy3(object)
+  if(ch=='Cy5') probes <- cy5(object)
+  als = c( 'M', 'U' )
+  pars = c( 'shape', 'scale' )
+  nonspecific <- sapply(1:dim(object)[2], function(i) {
+    bv = (methylated(object)[probes,i]+1)/(total.intensity(object)[probes,i]+2)
+    low = which( bv < cuts[1] )
+    high = which( bv > cuts[2] )
+    est = gamma.mle(methylated(object[low,i]))
+    if(use.U) {
+      est = c(est, gamma.mle(unmethylated(object[high,i])))
+      nms = unlist(sapply(als,function(x)paste(x,'bg',pars,sep='.'),simplify=F))
+      names(est) = nms
+    } else {
+      nms = paste('bg',pars,sep='.')
+    }
+    names(est) = nms
+    est
+  })
+  nonspec <- t(nonspecific)
+  rownames(nonspec) = sampleNames(object)
+  return(nonspec)
+} # }}}
+
+## simple: in-channel estimates for a given allele
+gamma.specific <- function(object, ch=NULL, chs=c('Cy3','Cy5'), al=NULL, alleles=c('methylated','unmethylated')) { # {{{
+
+  if(is.null(ch)) { # {{{
+    perchannel <- lapply(chs, function(ch) {
+      spec = gamma.specific(object, ch=ch, al=al)
+      colnames(spec) = paste(ch, colnames(spec), sep='.')
+      spec
+    })
+    return(cbind(perchannel[[1]], perchannel[[2]]))
+  } # }}}
+  if(is.null(al)) { # {{{
+    perallele <- lapply(alleles, function(al) {
+      spec = gamma.specific(object, ch=ch, al=al)
+      colnames(spec) = paste(toupper(substr(al,1,1)), colnames(spec), sep='.')
+      spec
+    })
+    return(cbind(perallele[[1]], perallele[[2]]))
+  } # }}}
+  if(ch=='Cy3') probes <- cy3(object)
+  if(ch=='Cy5') probes <- cy5(object)
+  pars = c( 'shape', 'scale' )
+  specific <- sapply(1:dim(object)[2], function(i) {
+    est = gamma.mle(assayDataElement(object, al)[probes,i])
+    names(est) = paste('fg',pars,sep='.')
+    est
+  })
+  spec <- t(specific)
+  rownames(spec) = sampleNames(object)
+  return(spec)
+} # }}}
+
+## FIXME: add a qa step for the remapped beta-mixture scheme or don't use it
+gamma.mix2 <- gamma.signal <- function(object) { # {{{
+
+  if( 'Cy3.fg.shape' %in% varLabels(object) ||  # {{{
+      'M.Cy3.fg.shape' %in% varLabels(object) ) { 
+    message('You seem to already have background corrected.  Exiting.')
+    return(object)
+  } else { 
+    pData(object) = cbind(pData(object), 
+                          gamma.nonspecific(object),
+                          gamma.specific(object))
+  } # }}}
+
+  probes = list(Cy5=cy5(object), Cy3=cy3(object))
+  if(parallel) lstply = mclapply else lstply = lapply
+  signal <- as.data.frame(lstply( 1:dim(object)[2], function( i ) {
+                    
+    meth.cy3 = gamma.conditional(methylated(object)[probes$Cy3,i], 
+                                 c( pData(object)[['Cy3.M.fg.shape']], 
+                                    pData(object)[['Cy3.M.fg.scale']],
+                                    pData(object)[['Cy3.bg.shape']],
+                                    pData(object)[['Cy3.bg.scale']]) )
+    meth.cy5 = gamma.conditional(methylated(object)[probes$Cy5,i], 
+                                 c( pData(object)[['Cy5.M.fg.shape']], 
+                                    pData(object)[['Cy5.M.fg.scale']],
+                                    pData(object)[['Cy5.bg.shape']],
+                                    pData(object)[['Cy5.bg.scale']]) )
+    methylated(object)[probes$Cy3,i] <- meth.cy3
+    methylated(object)[probes$Cy5,i] <- meth.cy5
+
+    unme.cy3 = gamma.conditional(unmethylated(object)[probes$Cy3,i],
+                                 c( pData(object)[['Cy3.U.fg.shape']], 
+                                    pData(object)[['Cy3.U.fg.scale']],
+                                    pData(object)[['Cy3.bg.shape']],
+                                    pData(object)[['Cy3.bg.scale']]) )
+    unme.cy5 = gamma.conditional(unmethylated(object)[probes$Cy5,i],
+                                 c( pData(object)[['Cy5.U.fg.shape']], 
+                                    pData(object)[['Cy5.U.fg.scale']],
+                                    pData(object)[['Cy5.bg.shape']],
+                                    pData(object)[['Cy5.bg.scale']]) )
+    unmethylated(object)[probes$Cy3,i] <- unme.cy3
+    unmethylated(object)[probes$Cy5,i] <- unme.cy5
+
+  }))
+
+  stop('gamma.mix2: Fix assignments!')
+
+  signal <- lstply( names(ints), function(allele) {
+    persubject <- data.matrix(as.data.frame(lstply(1:dim(object)[2],function(i){
+      sapply( ints[[allele]][, i], function(x) {
+        gamma.conditional(x, params[i, ]) ## vectorize!
+      })
+    })))
+    colnames(persubject) <- sampleNames(object)
+    rownames(persubject) <- featureNames(object)[getProbesByChannel(object,ch)]
+    persubject
+  })
+  names(signal) <- names(ints)
   return(signal)
 
 } # }}}
