@@ -330,7 +330,7 @@ gamma.conditional <- function(total, params, minx=1) { # {{{
 } # }}}
 
 ## like gamma.mix, but stupider
-gamma.ctl <- function(object, channel=NULL, allele=NULL, channels=c('Cy3','Cy5'), alleles=c('methylated','unmethylated'), parallel=F){ # {{{
+gamma.ctl <- function(object, channel=NULL, allele=NULL, channels=c('Cy3','Cy5'), alleles=c('methylated','unmethylated'), parallel=F, offset=50){ # {{{
 
   if(parallel) require(multicore)
   if(is.null(channel)) { # {{{
@@ -445,7 +445,7 @@ gamma.mixparams <- function(x, use.U=F) { # {{{
 } # }}}
 
 ## FIXME: move this to C++ as soon as humanly possible (ideally with matrix arg)
-gamma.integral <- function(total, params, minx=1) { # {{{
+gamma.integral <- function(total, params, offset=50, minx=1) { # {{{
 
   ## this bit is the most obvious "farm me out to C++" piece of all...
   if(length(total) > 1) return(sapply(total, gamma.integral, params=params))
@@ -471,16 +471,16 @@ gamma.integral <- function(total, params, minx=1) { # {{{
       )$value # else will return a list with value, abs.error, subdivisions, ...
     ) # i.e., integrate(PrSignalGivenTotal, /* from */ 0, /* to */ total);
     if(class(res) == 'try-error') {
-      return(pmax(total-bg.mean, minx))
+      return(pmax(total-bg.mean, minx)+offset)
     } else {
-      return(pmax(res, minx))
+      return(pmax(res, minx)+offset)
     }
   }
 
 } # }}}
 
 ## FIXME: add a qa step for the remapped beta-mixture scheme or don't use it
-gamma.mix <- gamma.mix2 <- function(object, use.U=F, minx=15, parallel=F){ # {{{
+gamma.mix <- gamma.mix2 <- function(object, use.U=F, offset=50, parallel=F) { # {{{
 
   if( 'Cy3.fg.shape' %in% varLabels(object) ||  # {{{ don't do this twice...
       'M.Cy3.fg.shape' %in% varLabels(object) ) { 
@@ -505,6 +505,7 @@ gamma.mix <- gamma.mix2 <- function(object, use.U=F, minx=15, parallel=F){ # {{{
     params = lapply(params, function(h) lapply(h, function(al) data.matrix(al)))
   } # }}}
 
+  off = offset
   if(parallel) require(multicore)
   if(parallel) lstply = mclapply else lstply = lapply
   probes = list(Cy5=cy5(object), Cy3=cy3(object))
@@ -515,7 +516,7 @@ gamma.mix <- gamma.mix2 <- function(object, use.U=F, minx=15, parallel=F){ # {{{
       scratch = assayDataElement(object, al)[ , i ]
       for( ch in channels ){
         chpr = probes[[ch]]
-        scratch[chpr] = gamma.integral(scratch[chpr],params[[ch]][[al]][i,])
+        scratch[chpr] = gamma.integral(scratch[chpr],params[[ch]][[al]][i,],off)
       }
       return(scratch)
     })))
@@ -529,6 +530,10 @@ gamma.mix <- gamma.mix2 <- function(object, use.U=F, minx=15, parallel=F){ # {{{
   } else if(is(x, 'MethyLumiSet')) {
     betas(x) = pmax(signals$M,1)/pmax(total.intensity(x),1)
   }
+  tmphist <- x@history[,3]
+  tmphist <- levels(tmphist)[tmphist]
+  tmphist[length(tmphist)] <- 'Applied gamma mixture background correction.'
+  x@history[,3] <- as.factor(tmphist)
   return(x)
 
 } # }}}
