@@ -393,17 +393,12 @@ gamma.nonspecific <- function(object,ch=NULL,chs=c('Cy3','Cy5'),use.U=F,cuts=c(0
   als = c( 'M', 'U' )
   pars = c( 'shape', 'scale' )
   nonspecific <- sapply(1:dim(object)[2], function(i) {
-    bv = (methylated(object)[probes,i]+1)/(total.intensity(object)[probes,i]+2)
-    low = which( bv < cuts[1] )
-    high = which( bv > cuts[2] )
-    est = gamma.mle(methylated(object[low,i]))
-    if(use.U) {
-      est = c(est, gamma.mle(unmethylated(object[high,i])))
-      nms = unlist(sapply(als,function(x)paste(x,'bg',pars,sep='.'),simplify=F))
-      names(est) = nms
-    } else {
-      nms = paste('bg',pars,sep='.')
-    }
+    bv = (pmax(methylated(object),1)/pmax(total.intensity(object),2))[,i]
+    low = intersect(which( bv < cuts[1] ), probes)
+    high = intersect(which( bv > cuts[2] ), probes)
+    est = c(rep(gamma.mle(methylated(object[low,i])),2))
+    if(use.U) est[3:4] = gamma.mle(unmethylated(object[high,i]))
+    nms = unlist(sapply(als,function(x)paste(x,'bg',pars,sep='.'),simplify=F))
     names(est) = nms
     est
   })
@@ -444,70 +439,102 @@ gamma.specific <- function(object, ch=NULL, chs=c('Cy3','Cy5'), al=NULL, alleles
   return(spec)
 } # }}}
 
-## FIXME: add a qa step for the remapped beta-mixture scheme or don't use it
-gamma.mix2 <- gamma.signal <- function(object) { # {{{
+# combines the above two functions for easy cbind()'ing into pData
+gamma.mixparams <- function(x, use.U=F) { # {{{
+  cbind(gamma.nonspecific(x, use.U=use.U), gamma.specific(x))
+} # }}}
 
-  if( 'Cy3.fg.shape' %in% varLabels(object) ||  # {{{
-      'M.Cy3.fg.shape' %in% varLabels(object) ) { 
-    message('You seem to already have background corrected.  Exiting.')
-    return(object)
-  } else { 
-    pData(object) = cbind(pData(object), 
-                          gamma.nonspecific(object),
-                          gamma.specific(object))
-  } # }}}
+## FIXME: move this to C++ as soon as humanly possible (ideally with matrix arg)
+gamma.integral <- function(total, params, minx=1) { # {{{
 
-  probes = list(Cy5=cy5(object), Cy3=cy3(object))
-  if(parallel) lstply = mclapply else lstply = lapply
-  signal <- as.data.frame(lstply( 1:dim(object)[2], function( i ) {
-                    
-    meth.cy3 = gamma.conditional(methylated(object)[probes$Cy3,i], 
-                                 c( pData(object)[['Cy3.M.fg.shape']], 
-                                    pData(object)[['Cy3.M.fg.scale']],
-                                    pData(object)[['Cy3.bg.shape']],
-                                    pData(object)[['Cy3.bg.scale']]) )
-    meth.cy5 = gamma.conditional(methylated(object)[probes$Cy5,i], 
-                                 c( pData(object)[['Cy5.M.fg.shape']], 
-                                    pData(object)[['Cy5.M.fg.scale']],
-                                    pData(object)[['Cy5.bg.shape']],
-                                    pData(object)[['Cy5.bg.scale']]) )
-    methylated(object)[probes$Cy3,i] <- meth.cy3
-    methylated(object)[probes$Cy5,i] <- meth.cy5
-
-    unme.cy3 = gamma.conditional(unmethylated(object)[probes$Cy3,i],
-                                 c( pData(object)[['Cy3.U.fg.shape']], 
-                                    pData(object)[['Cy3.U.fg.scale']],
-                                    pData(object)[['Cy3.bg.shape']],
-                                    pData(object)[['Cy3.bg.scale']]) )
-    unme.cy5 = gamma.conditional(unmethylated(object)[probes$Cy5,i],
-                                 c( pData(object)[['Cy5.U.fg.shape']], 
-                                    pData(object)[['Cy5.U.fg.scale']],
-                                    pData(object)[['Cy5.bg.shape']],
-                                    pData(object)[['Cy5.bg.scale']]) )
-    unmethylated(object)[probes$Cy3,i] <- unme.cy3
-    unmethylated(object)[probes$Cy5,i] <- unme.cy5
-
-  }))
-
-  stop('gamma.mix2: Fix assignments!')
-
-  signal <- lstply( names(ints), function(allele) {
-    persubject <- data.matrix(as.data.frame(lstply(1:dim(object)[2],function(i){
-      sapply( ints[[allele]][, i], function(x) {
-        gamma.conditional(x, params[i, ]) ## vectorize!
-      })
-    })))
-    colnames(persubject) <- sampleNames(object)
-    rownames(persubject) <- featureNames(object)[getProbesByChannel(object,ch)]
-    persubject
-  })
-  names(signal) <- names(ints)
-  return(signal)
+  ## this bit is the most obvious "farm me out to C++" piece of all...
+  if(length(total) > 1) return(sapply(total, gamma.integral, params=params))
+  
+  g = params[1]
+  a = params[2]
+  d = params[3]
+  b = params[4]
+  bg.mean = d * b 
+  bg.sd = sqrt( d * b * b )
+  cat('total =',total,'... bg.mean =',bg.mean,'... bg.sd =',bg.sd,"\n")
+  if(total > ( bg.mean + ( 3 * bg.sd ) )) {
+    return(pmax(total - bg.mean, minx))
+  } else {
+    ## FIXME: need to write this as a function object for C++ to integrate it
+    res = try(
+      integrate( 
+        function(x) {
+          (exp(x*((1/b)-(1/a)))*(total**(1-g-d))*((total-x)**(d-1))*(x**(g-1)))*
+          (1/(beta(g,d)*hyperg_1F1(g, g+d, total*((1/b)-(1/a)), strict=F)))*x 
+        }, 
+        0, total
+      )$value # else will return a list with value, abs.error, subdivisions, ...
+    ) # i.e., integrate(PrSignalGivenTotal, /* from */ 0, /* to */ total);
+    if(class(res) == 'try-error') {
+      return(pmax(total-bg.mean, minx))
+    } else {
+      return(pmax(res, minx))
+    }
+  }
 
 } # }}}
 
 ## FIXME: add a qa step for the remapped beta-mixture scheme or don't use it
-gamma.mix <- gamma.signal <- function(object, channel=NULL, channels=c('Cy3','Cy5'), parallel=F, al=NULL, alleles=c('methylated','unmethylated'), sp=T, how='nonspecific') { # {{{
+gamma.mix <- gamma.mix2 <- function(object, use.U=F, minx=15, parallel=F){ # {{{
+
+  if( 'Cy3.fg.shape' %in% varLabels(object) ||  # {{{ don't do this twice...
+      'M.Cy3.fg.shape' %in% varLabels(object) ) { 
+    message('You seem to already have had background correction. Exiting.')
+    return(object)
+  } else { 
+    pData(object) = cbind(pData(object), gamma.mixparams(object, use.U=use.U))
+    params = list( 
+      Cy3 = list(
+        methylated = pData(object)[, c('Cy3.M.fg.shape','Cy3.M.fg.scale',
+                                       'Cy3.M.bg.shape','Cy3.M.bg.scale')  ],
+        unmethylated = pData(object)[, c('Cy3.U.fg.shape','Cy3.U.fg.scale',
+                                         'Cy3.U.bg.shape','Cy3.U.bg.scale')]
+      ),
+      Cy5 = list(
+        methylated = pData(object)[, c('Cy5.M.fg.shape','Cy5.M.fg.scale',
+                                       'Cy5.M.bg.shape','Cy5.M.bg.scale')  ],
+        unmethylated = pData(object)[, c('Cy5.U.fg.shape','Cy5.U.fg.scale',
+                                         'Cy5.U.bg.shape','Cy5.U.bg.scale')]
+      )
+    ) 
+    params = lapply(params, function(h) lapply(h, function(al) data.matrix(al)))
+  } # }}}
+
+  if(parallel) require(multicore)
+  if(parallel) lstply = mclapply else lstply = lapply
+  probes = list(Cy5=cy5(object), Cy3=cy3(object))
+  alleles = list(M='methylated', U='unmethylated')
+  channels = list(Cy5='Cy5', Cy3='Cy3') ## FIXME: add for 450k: , Both='New')
+  signals = lstply( alleles, function( al ) {
+    data.matrix(as.data.frame(lstply( 1:dim(object)[2], function( i ) { 
+      scratch = assayDataElement(object, al)[ , i ]
+      for( ch in channels ){
+        chpr = probes[[ch]]
+        scratch[chpr] = gamma.integral(scratch[chpr],params[[ch]][[al]][i,])
+      }
+      return(scratch)
+    })))
+  })
+
+  x = clone(object)
+  methylated(x) = signals$M
+  unmethylated(x) = signals$U
+  if(is(x, 'MethyLumiM')) {
+    exprs(x) = log2(pmax(signals$M,1)/pmax(signals$U,1))
+  } else if(is(x, 'MethyLumiSet')) {
+    betas(x) = pmax(signals$M,1)/pmax(total.intensity(x),1)
+  }
+  return(x)
+
+} # }}}
+
+## FIXME: add a qa step for the remapped beta-mixture scheme or don't use it
+gamma.mix1 <- function(object, channel=NULL, channels=c('Cy3','Cy5'), parallel=F, al=NULL, alleles=c('methylated','unmethylated'), sp=T, how='nonspecific') { # {{{
 
   ## FIXME: use the lstply() hack everywhere else, too :-)
   if(parallel) require(multicore)
