@@ -456,7 +456,7 @@ gamma.integral <- function(total, params, minx=1) { # {{{
   b = params[4]
   bg.mean = d * b 
   bg.sd = sqrt( d * b * b )
-  cat('total =',total,'... bg.mean =',bg.mean,'... bg.sd =',bg.sd,"\n")
+  ## cat('total =',total,'... bg.mean =',bg.mean,'... bg.sd =',bg.sd,"\n")
   if(total > ( bg.mean + ( 3 * bg.sd ) )) {
     return(pmax(total - bg.mean, minx))
   } else {
