@@ -229,13 +229,14 @@ TMM.SD.Cy5$channel = 'Cy5'
 TMM.SD.Cy3$channel = 'Cy3'
 TMM.SDs = rbind(TMM.SD.both, TMM.SD.Cy5, TMM.SD.Cy3)
 p = qplot(data=TMM.SDs, geom='boxplot', y=SD, x=method, fill=method, 
-          main='Background correction and probe-level SD', facets=.~channel)
+          main='Background correction and probe-level SD', facets=.~channel) +
+          scale_y_log10() + theme_bw()
 @ 
 
 \begin{figure}[h!]
 \centering
 <<probeLevelSDs, fig=T, eval=T>>=
-print(p) + scale_y_log10() + theme_bw()
+print(p)
 @
 \caption{probe-level standard deviations
 \label{fig:probeSDs}
