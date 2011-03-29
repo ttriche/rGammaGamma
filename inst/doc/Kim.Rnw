@@ -124,7 +124,7 @@ TMM.lumi.noctls@controlData <- NULL # force the issue
 TMM.lumi.bg <- lumiMethyB(TMM.lumi.noctls, separateColor=T, target=50)
 @ 
 
-We expect the distribution of beta values to be a little more extreme:
+We expect the distribution of beta values to be a little more extreme and it is:
 
 \begin{figure}[h!]
 \centering
@@ -143,10 +143,10 @@ hist(betas(TMM.lumi.bg))
 This is the normal-exponential convolution as implemented in 'limma'.
 
 <<normexp, eval=T, fig=T>>=
-normexped = normexp(TMM[1000:2000,], offset=50)
+TMM.nexp = mcsv.normexp(TMM, offset=50)
 par(mfrow=c(1,2))
-hist(betas(TMM)[1000:2000,], main='before normexp')
-hist(betas(normexped), main='after normexp')
+hist(betas(TMM), main='before normexp')
+hist(betas(TMM.nexp), main='after normexp')
 @ 
 
 \clearpage
@@ -162,10 +162,12 @@ benefit most from background correction, especially on the 27k platform, it's
 a better idea to use the mixture model and take advantage of more data points.
 
 <<gammactl, eval=T, fig=T>>=
-gammactls = gamma.ctl(TMM[1000:2000,], offset=50)
+source("~/Dropbox/rGammaGamma/rGammaGamma/R/gammamix.R")
+## TMM.ctl = gamma.ctl(TMM, offset=50)
+load("~/Dropbox/Kim/TMM.ctl.rda")
 par(mfrow=c(1,2))
-hist(betas(TMM)[1000:2000,], main='before gammactl')
-hist(betas(gammactls), main='after gammactl')
+hist(betas(TMM), main='before gammactl')
+hist(betas(TMM.ctl), main='after gammactl')
 @ 
 
 \clearpage
@@ -182,7 +184,7 @@ success on expression microarrays.  Nonspecific (background) estimates:
 
 <<nonspecific, eval=T, echo=T>>=
 ## library(rGammaGamma)
-source("~/Dropbox/rGammaGamma/pkg/R/gammamix.R")
+source("~/Dropbox/rGammaGamma/rGammaGamma/R/gammamix.R")
 head(gamma.nonspecific(TMM))
 @ 
 
@@ -194,13 +196,41 @@ head(gamma.specific(TMM))
 
 Corrected intensities, 1000 probes (otherwise very slow):
 <<gammamix, eval=T, fig=T>>=
-corrected = gamma.mix(TMM[1000:2000,], offset=50)
+## TMM.mix = gamma.mix(TMM[1000:2000,], offset=50)
+load("~/Dropbox/Kim/TMM.mix.rda")
 par(mfrow=c(1,2))
-hist(betas(TMM)[1000:2000,], main='before gammamix')
-hist(betas(corrected), main='after gammamix')
+hist(betas(TMM), main='before gammamix')
+hist(betas(TMM.mix), main='after gammamix')
 @ 
 
 \clearpage
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Comparison of results}
+
+To determine which method makes the most sense in general, we look at the 
+probe-level standard deviation across ten identical whole blood replicates, 
+from five BeadChips with significant positional artifacts. 
+
+<<probeSDs, eval=T, echo=T>>=
+@ 
+
+\begin{figure}[h!]
+\centering
+<<probeLevelSDs, fig=T, eval=T>>=
+print(p)
+@
+\caption{probe-level standard deviations
+\label{fig:probeSDs}
+\end{figure}            
+\clearpage
+
+The gamma mixture model clearly outperforms the other methods, with the 
+empirical method from Lumi and the Gamma deconvolution on controls trailing. 
+The normal-exponential convolution is scarcely better than doing nothing.
+\\
+All of the methods described in this vignette are available from the R packages
+'lumi', 'methylumi' (release 2.8 and later), or 'rGammaGamma' (TBA, on CRAN).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \part{sessionInfo}
