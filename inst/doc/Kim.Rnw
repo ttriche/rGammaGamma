@@ -124,7 +124,7 @@ TMM.lumi.noctls@controlData <- NULL # force the issue
 TMM.lumi.bg <- lumiMethyB(TMM.lumi.noctls, separateColor=T, target=50)
 @ 
 
-We expect the distribution of beta values to be a little more extreme and it is:
+We expect the beta value distribution to be a little more extreme now:
 
 \begin{figure}[h!]
 \centering
@@ -194,7 +194,7 @@ Specific (foreground, per-channel, per-allele) estimates:
 head(gamma.specific(TMM))
 @ 
 
-Corrected intensities, 1000 probes (otherwise very slow):
+Corrected intensities:
 <<gammamix, eval=T, fig=T>>=
 ## TMM.mix = gamma.mix(TMM[1000:2000,], offset=50)
 load("~/Dropbox/Kim/TMM.mix.rda")
@@ -228,27 +228,25 @@ TMM.SD.both$channel = 'both'
 TMM.SD.Cy5$channel = 'Cy5'
 TMM.SD.Cy3$channel = 'Cy3'
 TMM.SDs = rbind(TMM.SD.both, TMM.SD.Cy5, TMM.SD.Cy3)
-p = qplot(data=TMM.SDs, geom='boxplot', y=SD, x=method, fill=method, 
-          main='Background correction and probe-level SD', facets=.~channel) +
-          scale_y_log10() + theme_bw()
 @ 
 
 \begin{figure}[h!]
 \centering
 <<probeLevelSDs, fig=T, eval=T>>=
-print(p)
+print( qplot(data=TMM.SDs, geom='boxplot', y=SD, x=method, fill=method, 
+             main='Background correction and probe-level SD', facets=.~channel)+
+             scale_y_log10() + theme_bw() )
 @
-\caption{probe-level standard deviations
+\caption{probe-level standard deviations}
 \label{fig:probeSDs}
 \end{figure}            
-\clearpage
-
 The gamma mixture model clearly outperforms the other methods, with the 
 empirical method from Lumi and the Gamma deconvolution on controls trailing. 
 The normal-exponential convolution is scarcely better than doing nothing.
 \\
 All of the methods described in this vignette are available from the R packages
 'lumi', 'methylumi' (release 2.8 and later), or 'rGammaGamma' (TBA, on CRAN).
+\clearpage
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \part{sessionInfo}
