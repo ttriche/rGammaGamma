@@ -9,7 +9,7 @@ gamma.mme <- function(x) { # {{{
 } # }}}
 
 ## fast approximation to the full Gamma MLE via Minka (2002) at MS Research
-gamma.mle <- function(x,w=NULL,niter=100,tol=0.000000001,minx=1) { # {{{
+gamma.mle <- function(x,w=NULL,niter=100,tol=0.01,minx=0.01) { # {{{
 
   if( is.null(w) ) w <- rep( 1, length(x) )
   meanlogx <- weighted.mean(log(pmax(x,minx)), w)
@@ -41,15 +41,6 @@ gamma.cmle <- function(x,w=NULL) { # {{{
 
 gamma.mode <- function(par) { # {{{
   ifelse(par['shape'] >= 1, (par['shape']-1)*par['scale'], 0)
-} # }}}
-
-gamma.bg <- function(object, channel=NULL, channels=c('Cy3','Cy5')) { # {{{
-  if(is.null(channel)) {
-    perchannel <- lapply(channels, function(x) gamma.bg(object,x))
-    names(perchannel) <- channels
-    return(perchannel)
-  }
-  return(apply(negctls(object, channel), 2, function(z) gamma.mle(z)))
 } # }}}
 
 ## for plotting and comparing the results of gamma.mixest vs. real data
@@ -329,47 +320,6 @@ gamma.conditional <- function(total, params, minx=1) { # {{{
 
 } # }}}
 
-## like gamma.mix, but stupider
-gamma.ctl <- function(object, channel=NULL, allele=NULL, channels=c('Cy3','Cy5'), alleles=c('methylated','unmethylated'), parallel=F, offset=50){ # {{{
-
-  if(parallel) require(multicore)
-  if(is.null(channel)) { # {{{
-    if(parallel) lstply <- mclapply else lstply <- lapply
-    perchannel <- lstply(channels, function(channel) 
-      gamma.ctl(object, channel=channel, allele=allele, parallel=parallel))
-    names(perchannel) <- channels
-    return(perchannel)
-  } # }}}
-  if(is.null(allele)) { # {{{
-    if(parallel) lstply <- mclapply else lstply <- lapply
-    perallele <- lstply(alleles, function(allele) {
-      gamma.ctl(object, channel=channel, allele=allele, parallel=parallel)
-    })
-    names(perallele) <- alleles
-    return(perallele) 
-  } # }}}
-
-  if(parallel) lstply <- mclapply else lstply <- lapply
-  fg.params <- data.matrix(as.data.frame(lstply(1:dim(object)[2],function(i)
-    gamma.mle(intensitiesByChannel(object[,i], channel, allele)))))
-  bg.params <- gamma.bg(object, channel)
-  colnames(fg.params) <- sampleNames(object)
-  stopifnot(identical(colnames(fg.params), colnames(bg.params)))
-  rownames(bg.params) <- c('bg.shape','bg.scale')
-  rownames(fg.params) <- c('fg.shape','fg.scale')
-  params <- t(rbind(fg.params, bg.params))
-
-  signal <- data.matrix(as.data.frame(lstply(1:dim(object)[2], function(i) {
-    sapply( intensitiesByChannel(object[,i], channel, allele), function(x) {
-      gamma.conditional(x, params[i, ])
-    })
-  })))
-  colnames(signal) <- sampleNames(object)
-  rownames(signal) <- featureNames(object)[getProbesByChannel(object,channel)]
-  return(signal)
-
-} # }}}
-
 ## just get the damned off-channel estimates
 gamma.nonspecific <- function(object,ch=NULL,chs=c('Cy3','Cy5'),use.U=F,cuts=c(0.05, 0.85),CpG=F) { # {{{
   if(is.null(ch)) { # {{{
@@ -482,12 +432,13 @@ gamma.integral <- function(total, params, offset=50, minx=1) { # {{{
 ## FIXME: add a qa step for the remapped beta-mixture scheme or don't use it
 gamma.mix <- gamma.mix2 <- function(object, use.U=F, offset=50, parallel=F) { # {{{
 
-  if( 'Cy3.fg.shape' %in% varLabels(object) ||  # {{{ don't do this twice...
-      'M.Cy3.fg.shape' %in% varLabels(object) ) { 
+  if( 'Cy3.M.fg.shape' %in% varLabels(object) ||  # {{{ don't do this twice...
+      'Cy3.bg.shape' %in% varLabels(object) ) { 
     message('You seem to already have had background correction. Exiting.')
     return(object)
   } else { 
-    pData(object) = cbind(pData(object), gamma.mixparams(object, use.U=use.U))
+    x = clone(object)
+    pData(x) = cbind(pData(x), gamma.mixparams(x, use.U=use.U))
     params = list( 
       Cy3 = list(
         methylated = pData(object)[, c('Cy3.M.fg.shape','Cy3.M.fg.scale',
@@ -504,7 +455,6 @@ gamma.mix <- gamma.mix2 <- function(object, use.U=F, offset=50, parallel=F) { # 
     ) 
     params = lapply(params, function(h) lapply(h, function(al) data.matrix(al)))
   } # }}}
-
   off = offset
   if(parallel) require(multicore)
   if(parallel) lstply = mclapply else lstply = lapply
@@ -521,8 +471,6 @@ gamma.mix <- gamma.mix2 <- function(object, use.U=F, offset=50, parallel=F) { # 
       return(scratch)
     })))
   })
-
-  x = clone(object)
   methylated(x) = signals$M
   unmethylated(x) = signals$U
   if(is(x, 'MethyLumiM')) {
@@ -538,7 +486,82 @@ gamma.mix <- gamma.mix2 <- function(object, use.U=F, offset=50, parallel=F) { # 
 
 } # }}}
 
-## FIXME: add a qa step for the remapped beta-mixture scheme or don't use it
+gamma.bg <- function(object, channel=NULL, channels=c('Cy3','Cy5'), flat=F){#{{{
+  if(is.null(channel) && !flat) {
+    perchannel <- lapply(channels, function(x) gamma.bg(object,x))
+    names(perchannel) <- channels
+    return(perchannel)
+  } else if(!flat) {
+    return(apply(as.matrix(negctls(object,channel)),2,function(z) gamma.mle(z)))
+  } else {
+    params = (t(rbind(gamma.bg(object,'Cy3'), gamma.bg(object,'Cy5'))))
+    colnames(params) = paste( c('Cy3.bg','Cy3.bg','Cy5.bg','Cy5.bg'), 
+                              colnames(params), sep='.' )
+    return(params)
+  }
+} # }}}
+
+gamma.ctlparams <- function(x, use.U=F) { # {{{
+  cbind(gamma.bg(x, flat=T), gamma.specific(x))
+} # }}}
+
+## like gamma.mix, but stupider
+gamma.ctl <- function(object, offset=50, parallel=F){ # {{{
+
+  if( 'Cy3.M.fg.shape' %in% varLabels(object) ||  # {{{ don't do this twice...
+      'Cy3.bg.shape' %in% varLabels(object) ) { 
+    message('You seem to already have had background correction. Exiting.')
+    return(object)
+  } else { 
+    x = clone(object)
+    pData(x) = cbind(pData(x), gamma.ctlparams(x, use.U=use.U))
+    params = list( 
+      Cy3 = list(
+        methylated = pData(object)[, c('Cy3.M.fg.shape','Cy3.M.fg.scale',
+                                       'Cy3.bg.shape',  'Cy3.bg.scale')   ],
+        unmethylated = pData(object)[, c('Cy3.U.fg.shape','Cy3.U.fg.scale',
+                                         'Cy3.bg.shape',  'Cy3.bg.scale') ]
+      ),
+      Cy5 = list(
+        methylated = pData(object)[, c('Cy5.M.fg.shape','Cy5.M.fg.scale',
+                                       'Cy5.bg.shape',  'Cy5.bg.scale')   ],
+        unmethylated = pData(object)[, c('Cy5.U.fg.shape','Cy5.U.fg.scale',
+                                         'Cy5.bg.shape',  'Cy5.bg.scale') ]
+      )
+    ) 
+    params = lapply(params, function(h) lapply(h, function(al) data.matrix(al)))
+  } # }}}
+  off = offset
+  if(parallel) require(multicore)
+  if(parallel) lstply = mclapply else lstply = lapply
+  probes = list(Cy5=cy5(object), Cy3=cy3(object))
+  alleles = list(M='methylated', U='unmethylated')
+  channels = list(Cy5='Cy5', Cy3='Cy3') ## FIXME: add for 450k: , Both='New')
+  signals = lstply( alleles, function( al ) { # {{{
+    data.matrix(as.data.frame(lstply( 1:dim(object)[2], function( i ) { 
+      scratch = assayDataElement(object, al)[ , i ]
+      for( ch in channels ){
+        chpr = probes[[ch]]
+        scratch[chpr] = gamma.integral(scratch[chpr],params[[ch]][[al]][i,],off)
+      }
+      return(scratch)
+    })))
+  }) # }}}
+  methylated(x) = signals$M
+  unmethylated(x) = signals$U
+  if(is(x, 'MethyLumiM')) {
+    exprs(x) = log2(pmax(signals$M,1)/pmax(signals$U,1))
+  } else if(is(x, 'MethyLumiSet')) {
+    betas(x) = pmax(signals$M,1)/pmax(total.intensity(x),1)
+  }
+  tmphist <- x@history[,3]
+  tmphist <- levels(tmphist)[tmphist]
+  tmphist[length(tmphist)]<-'Applied gamma background correction via controls.'
+  x@history[,3] <- as.factor(tmphist)
+  return(x)
+
+} # }}}
+
 gamma.mix1 <- function(object, channel=NULL, channels=c('Cy3','Cy5'), parallel=F, al=NULL, alleles=c('methylated','unmethylated'), sp=T, how='nonspecific') { # {{{
 
   ## FIXME: use the lstply() hack everywhere else, too :-)
@@ -626,36 +649,17 @@ spcor.plot <- function(x, ID=NULL, parallel=TRUE) { # {{{
 ## FIXME: switch to using C++ and/or OpenMP to speed this up tolerably
 ## FIXME: adjust negative and positive controls along with analytic probes
 ## FIXME: add a log entry for gamma deconvolution and note how it was done
-gamma.bgcorr <- function(object, how='mixture', offset=15, parallel=F) { # {{{
+gamma.bgcorr <- function(object,how='mix',offset=50,parallel=F,use.U=F) { # {{{
   
-  if(annotation(object)=='HumanMethylation450k') stop('450ks not supported yet')
-  else history.submitted <- as.character(Sys.time())
-
-  ## FIXME: use switch()
-  if( how %in% c('mixture','mix') ) {
-    message('Control probes are not currently adjusted in the mixture model')
-    signal <- gamma.mix(object, parallel=parallel)
-    history.command <- "Applied gamma mixture model background correction."
+  if(annotation(object)=='HumanMethylation450k') {
+    stop('450k chips not supported yet (design II probes are un-modeled)')
+  } else if( how %in% c('mixture','mix') ) {
+    cloned <- gamma.mix(object, offset=offset, parallel=parallel, use.U=use.U)
   } else if( how %in% c('controls','ctl') ) {
-    signal <- gamma.ctl(object, parallel=parallel)
-    history.command <- "Applied gamma negative control background correction."
+    cloned <- gamma.ctl(object, offset=offset, parallel=parallel)
   }
-  Ms <- methylated(object)
-  Us <- unmethylated(object)
-  for( ch in names(signal) ) {
-    Ms[ getProbesByChannel(object, ch), ] <- signal[[ch]][['methylated']]
-    Us[ getProbesByChannel(object, ch), ] <- signal[[ch]][['unmethylated']]
-  }
-  cloned <- clone(object)
-  methylated(cloned) <- Ms + offset
-  unmethylated(cloned) <- Us + offset
   betas(cloned) <- methylated(cloned) / total.intensity(cloned)
-  pval.detect(cloned) <- 0.05 # resets betas, or at least, it should
-  history.finished <- t.finish()
-  cloned@history<- rbind(cloned@history,
-                         data.frame(submitted=history.submitted,
-                                    finished=history.finished,
-                                    command=history.command))
+  pval.detect(cloned) <- 0.05 # masks betas, or at least should
   return(cloned)
 
 } # }}}
