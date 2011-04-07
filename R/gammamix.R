@@ -9,7 +9,7 @@ gamma.mme <- function(x) { # {{{
 } # }}}
 
 ## fast approximation to the full Gamma MLE via Minka (2002) at MS Research
-gamma.mle <- function(x,w=NULL,niter=100,tol=0.01,minx=0.01) { # {{{
+gamma.mle <- function(x,w=NULL,niter=100,tol=0.1,minx=0.1) { # {{{
 
   if( is.null(w) ) w <- rep( 1, length(x) )
   meanlogx <- weighted.mean(log(pmax(x,minx)), w)
@@ -56,7 +56,7 @@ make.fn <- function(ests,channel,allele,bgorfg,type=c('rgamma','dgamma')){ # {{{
   if(type=='dgamma') {
     return(
       function(x) {
-        rgamma(x, shape=ests[paste(channel,allele,bgorfg,'shape',sep='.')],
+        dgamma(x, shape=ests[paste(channel,allele,bgorfg,'shape',sep='.')],
                   scale=ests[paste(channel,allele,bgorfg,'scale',sep='.')])
       }
     )
@@ -321,7 +321,7 @@ gamma.conditional <- function(total, params, minx=1) { # {{{
 } # }}}
 
 ## just get the damned off-channel estimates
-gamma.nonspecific <- function(object,ch=NULL,chs=c('Cy3','Cy5'),use.U=F,cuts=c(0.05, 0.85),CpG=F) { # {{{
+gamma.nonspecific <- function(object,ch=NULL,chs=c('Cy3','Cy5'),use.U=F,cuts=c(0.05, 0.85),CpG=F,use.U.betas=T) { # {{{
   if(is.null(ch)) { # {{{
     perchannel <- lapply(chs, function(ch) {
       nonspec = gamma.nonspecific(object,ch=ch,use.U=use.U,cuts=cuts)
@@ -347,7 +347,22 @@ gamma.nonspecific <- function(object,ch=NULL,chs=c('Cy3','Cy5'),use.U=F,cuts=c(0
     low = intersect(which( bv < cuts[1] ), probes)
     high = intersect(which( bv > cuts[2] ), probes)
     est = c(rep(gamma.mle(methylated(object[low,i])),2))
-    if(use.U) est[3:4] = gamma.mle(unmethylated(object[high,i]))
+    if(length(low) < nrow(negctls(object,'Cy5')) ) {
+      if( use.U.betas ) {
+        est = gamma.mle(unmethylated(object[high,i])*betas(object[high,i]))
+      } else {
+        est = gamma.mle(unmethylated(object[high,i]))
+      }
+      est = c(est, est)
+    } else if(use.U) {
+      if( use.U.betas ) {
+        est[3:4] = gamma.mle(unmethylated(object[high,i])*betas(object[high,i]))
+      } else {
+        est[3:4] = gamma.mle(unmethylated(object[high,i]))
+      }
+    } else if(length(high) < nrow(negctls(object,'Cy5')) ) {
+      est = c(rep(gamma.mle(methylated(object[low,i])),2))
+    }
     nms = unlist(sapply(als,function(x)paste(x,'bg',pars,sep='.'),simplify=F))
     names(est) = nms
     est
@@ -605,6 +620,24 @@ gamma.mix1 <- function(object, channel=NULL, channels=c('Cy3','Cy5'), parallel=F
   return(signal)
 
 } # }}}
+
+## for bias/variance calculations (normexp vs. gamma.ctl vs. gamma.mix)
+gamma.sim.fn <- function(mixparams) { # {{{
+  g = mixparams[13] # Cy5.M.fg.shape
+  a = mixparams[12] # Cy5.M.fg.scale
+  d = mixparams[5]  # Cy5.M.bg.shape
+  b = mixparams[6]  # Cy5.M.bg.shape
+  function(n) {
+    res = t(sapply(1:n, function(i) {
+      xs = rgamma(1,g,1/a)
+      xb = rgamma(1,d,1/b)
+      xf = xs + xb
+      c(xb=xb, xf=xf, xs=xs)
+    }))
+    attr(res, 'params') = c(g=g, a=a, d=d, b=b)
+    return(res)
+  }
+} # }}} 
 
 ## cross-correlation between replicates and such, for testing normalization
 spcor <- function(object, reps=NULL, parallel=FALSE, ... ) { # {{{
