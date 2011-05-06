@@ -323,7 +323,7 @@ gamma.conditional <- function(total, params, minx=1) { # {{{
 } # }}}
 
 ## just get the damned off-channel estimates
-gamma.nonspecific<-function(object,ch=NULL,chs=c('Cy3','Cy5'),cuts=c(0.05,0.85),...){ # {{{
+gamma.nonspecific<-function(object,ch=NULL,chs=c('Cy3','Cy5'),cuts=c(0.05,0.85),use.U.betas=T){ # {{{
   if(is.null(ch)) { # {{{
     perchannel <- lapply(chs, function(ch) {
       nonspec = gamma.nonspecific(object,ch=ch,use.U=use.U,cuts=cuts)
@@ -341,7 +341,11 @@ gamma.nonspecific<-function(object,ch=NULL,chs=c('Cy3','Cy5'),cuts=c(0.05,0.85),
     low = intersect(which( bv < cuts[1] ), probes)
     high = intersect(which( bv > cuts[2] ), probes)
     if(length(low) < length(negctls(object,ch))) {
-      est = gamma.mle(unmethylated(object[high,i])*betas(object[high,i]))
+      if(use.U.betas) {
+        est = gamma.mle(unmethylated(object[high,i])*betas(object[high,i]))
+      } else {
+        est = gamma.mle(unmethylated(object[high,i]))
+      }
     } else {
       est = c(rep(gamma.mle(methylated(object[low,i])),2))
     }
