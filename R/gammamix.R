@@ -9,19 +9,21 @@ gamma.mme <- function(x) { # {{{
 } # }}}
 
 ## fast approximation to the full Gamma MLE via Minka (2002) at MS Research
-gamma.mle <- function(x,w=NULL,niter=100,tol=0.1,minx=0.1) { # {{{
+gamma.mle <- function(x,w=NULL,niter=100,tol=0.1,minx=1) { # {{{
 
   if( is.null(w) ) w <- rep( 1, length(x) )
-  meanlogx <- weighted.mean(log(pmax(x,minx)), w)
-  meanx <- weighted.mean(pmax(x,minx), w)
+  meanlogx <- weighted.mean(log1p(x), w)
+  meanx <- weighted.mean(x, w)
   logmeanx <- log(meanx)
   a <- a0 <- (0.5/(logmeanx-meanlogx))  # from Minka 2002
+  if(is.nan(a)) stop('NaN starting estimate')
   update.a <- function(a) {
     ooa <- 1/a
     1/(ooa+((meanlogx-logmeanx+log(a)-digamma(a))/(((ooa-trigamma(a))*(a**2)))))
   }
   for(i in 1:niter) { # usually converges in under 5 iterations
     a <- update.a(a0)
+
     if(abs(a0-a) < tol) break
     else a0 <- a 
   }
@@ -70,7 +72,7 @@ make.rgamma.fn <- function(ests,channel,allele,bgorfg) { # {{{
 } # }}}
 
 ## FIXME: definitely move this to C++!
-gamma.mixest <- function(object, ch=NULL, al=NULL, sp=T, w.beta=F, als=c('methylated','unmethylated'), chs=c('Cy3','Cy5'), cuts=c(.15,.85),use.CpGi=T, confine=F, verbose=F ){ # {{{
+gamma.mixest <- function(object, ch=NULL, al=NULL, sp=T, w.beta=F, als=c('methylated','unmethylated'), chs=c('Cy3','Cy5'), cuts=c(.05,.85),use.CpGi=T, confine=F, verbose=F ){ # {{{
   if(is.null(ch)) {
     perchannel <- lapply(chs, function(x) gamma.nonspecific(object,x,al,sp=sp))
     return(cbind(perchannel[[1]], perchannel[[2]]))
@@ -321,15 +323,7 @@ gamma.conditional <- function(total, params, minx=1) { # {{{
 } # }}}
 
 ## just get the damned off-channel estimates
-gamma.nonspecific <- function(object,ch=NULL,chs=c('Cy3','Cy5'),use.U=F,cuts=c(0.05, 0.85),CpG=F,use.U.betas=T) { # {{{
-  if(is.null(ch)) { # {{{
-    perchannel <- lapply(chs, function(ch) {
-      nonspec = gamma.nonspecific(object,ch=ch,use.U=use.U,cuts=cuts)
-      colnames(nonspec) = paste(ch, colnames(nonspec), sep='.')
-      nonspec
-    })
-    return(cbind(perchannel[[1]], perchannel[[2]]))
-  } # }}}
+gamma.nonspecific<-function(object,ch=NULL,chs=c('Cy3','Cy5'),cuts=c(0.05,0.85),...){ # {{{
   if(is.null(ch)) { # {{{
     perchannel <- lapply(chs, function(ch) {
       nonspec = gamma.nonspecific(object,ch=ch,use.U=use.U,cuts=cuts)
@@ -343,26 +337,15 @@ gamma.nonspecific <- function(object,ch=NULL,chs=c('Cy3','Cy5'),use.U=F,cuts=c(0
   als = c( 'M', 'U' )
   pars = c( 'shape', 'scale' )
   nonspecific <- sapply(1:dim(object)[2], function(i) {
-    bv = (pmax(methylated(object),1)/pmax(total.intensity(object),2))[,i]
+    bv = (pmax(methylated(object),1)[,i])/(pmax(total.intensity(object),2)[,i])
     low = intersect(which( bv < cuts[1] ), probes)
     high = intersect(which( bv > cuts[2] ), probes)
-    est = c(rep(gamma.mle(methylated(object[low,i])),2))
-    if(length(low) < nrow(negctls(object,'Cy5')) ) {
-      if( use.U.betas ) {
-        est = gamma.mle(unmethylated(object[high,i])*betas(object[high,i]))
-      } else {
-        est = gamma.mle(unmethylated(object[high,i]))
-      }
-      est = c(est, est)
-    } else if(use.U) {
-      if( use.U.betas ) {
-        est[3:4] = gamma.mle(unmethylated(object[high,i])*betas(object[high,i]))
-      } else {
-        est[3:4] = gamma.mle(unmethylated(object[high,i]))
-      }
-    } else if(length(high) < nrow(negctls(object,'Cy5')) ) {
+    if(length(low) < length(negctls(object,ch))) {
+      est = gamma.mle(unmethylated(object[high,i])*betas(object[high,i]))
+    } else {
       est = c(rep(gamma.mle(methylated(object[low,i])),2))
     }
+    est = c(est, est)
     nms = unlist(sapply(als,function(x)paste(x,'bg',pars,sep='.'),simplify=F))
     names(est) = nms
     est
@@ -453,19 +436,20 @@ gamma.mix <- gamma.mix2 <- function(object, use.U=F, offset=50, parallel=F) { # 
     return(object)
   } else { 
     x = clone(object)
-    pData(x) = cbind(pData(x), gamma.mixparams(x, use.U=use.U))
+    pData(x) = cbind(pData(x), gamma.mixparams(x))
+    browser()
     params = list( 
       Cy3 = list(
-        methylated = pData(object)[, c('Cy3.M.fg.shape','Cy3.M.fg.scale',
-                                       'Cy3.M.bg.shape','Cy3.M.bg.scale')  ],
-        unmethylated = pData(object)[, c('Cy3.U.fg.shape','Cy3.U.fg.scale',
-                                         'Cy3.U.bg.shape','Cy3.U.bg.scale')]
+        methylated = pData(x)[, c('Cy3.M.fg.shape','Cy3.M.fg.scale',
+                                  'Cy3.M.bg.shape','Cy3.M.bg.scale')  ],
+        unmethylated = pData(x)[, c('Cy3.U.fg.shape','Cy3.U.fg.scale',
+                                    'Cy3.U.bg.shape','Cy3.U.bg.scale')]
       ),
       Cy5 = list(
-        methylated = pData(object)[, c('Cy5.M.fg.shape','Cy5.M.fg.scale',
-                                       'Cy5.M.bg.shape','Cy5.M.bg.scale')  ],
-        unmethylated = pData(object)[, c('Cy5.U.fg.shape','Cy5.U.fg.scale',
-                                         'Cy5.U.bg.shape','Cy5.U.bg.scale')]
+        methylated = pData(x)[, c('Cy5.M.fg.shape','Cy5.M.fg.scale',
+                                  'Cy5.M.bg.shape','Cy5.M.bg.scale')  ],
+        unmethylated = pData(x)[, c('Cy5.U.fg.shape','Cy5.U.fg.scale',
+                                    'Cy5.U.bg.shape','Cy5.U.bg.scale')]
       )
     ) 
     params = lapply(params, function(h) lapply(h, function(al) data.matrix(al)))
