@@ -326,7 +326,7 @@ gamma.conditional <- function(total, params, minx=1) { # {{{
 gamma.nonspecific<-function(object,ch=NULL,chs=c('Cy3','Cy5'),cuts=c(0.05,0.85),use.U.betas=T){ # {{{
   if(is.null(ch)) { # {{{
     perchannel <- lapply(chs, function(ch) {
-      nonspec = gamma.nonspecific(object,ch=ch,use.U=use.U,cuts=cuts)
+      nonspec=gamma.nonspecific(object,ch=ch,use.U.betas=use.U.betas,cuts=cuts)
       colnames(nonspec) = paste(ch, colnames(nonspec), sep='.')
       nonspec
     })
@@ -432,16 +432,15 @@ gamma.integral <- function(total, params, offset=50, minx=1) { # {{{
 } # }}}
 
 ## FIXME: add a qa step for the remapped beta-mixture scheme or don't use it
-gamma.mix <- gamma.mix2 <- function(object, use.U=F, offset=50, parallel=F) { # {{{
+gamma.mix <- gamma.mix2 <- function(object, use.U.betas=F, offset=50, parallel=F) { # {{{
 
-  if( 'Cy3.M.fg.shape' %in% varLabels(object) ||  # {{{ don't do this twice...
+  if( 'Cy3.M.fg.shape' %in% varLabels(object) ||  # {{{ don't do this
       'Cy3.bg.shape' %in% varLabels(object) ) { 
     message('You seem to already have had background correction. Exiting.')
     return(object)
   } else { 
     x = clone(object)
     pData(x) = cbind(pData(x), gamma.mixparams(x))
-    browser()
     params = list( 
       Cy3 = list(
         methylated = pData(x)[, c('Cy3.M.fg.shape','Cy3.M.fg.scale',
@@ -475,7 +474,9 @@ gamma.mix <- gamma.mix2 <- function(object, use.U=F, offset=50, parallel=F) { # 
     })))
   })
   methylated(x) = signals$M
+  colnames(methylated(x)) = sampleNames(x)
   unmethylated(x) = signals$U
+  colnames(unmethylated(x)) = sampleNames(x)
   if(is(x, 'MethyLumiM')) {
     exprs(x) = log2(pmax(signals$M,1)/pmax(signals$U,1))
   } else if(is(x, 'MethyLumiSet')) {
