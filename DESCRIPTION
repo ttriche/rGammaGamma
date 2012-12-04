@@ -3,8 +3,8 @@ Type: Package
 Title: Gamma convolutions for methylation array background correction.
 Depends: gsl
 LinkingTo: Rcpp
-Version: 1.0.7
-Date: 2011-05-09
+Version: 1.0.8
+Date: 2012-12-04
 Author: Tim Triche, Jr.
 Maintainer: Tim Triche, Jr. <tim.triche@gmail.com>
 Description: This package implements a Gamma convolution model for background.

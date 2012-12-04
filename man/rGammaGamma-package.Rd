@@ -29,6 +29,8 @@ Tim Triche, Jr.<ttriche@usc.edu>
 }
 \keyword{ package }
 \examples{
-  foo <- methylumIDAT(barcodes, parallel=T)
-  foo.bg <- gammagamma(foo)
+## not run
+
+##  foo <- methylumIDAT(barcodes, parallel=T)
+##  foo.bg <- methylumi.bgcorr(foo, method='goob')
 }
