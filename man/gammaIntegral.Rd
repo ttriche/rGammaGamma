@@ -1,10 +1,13 @@
-\name{gamma.mme}
-\alias{gamma.mme}
+\name{gammaIntegral}
+\alias{gammaIntegral}
 \title{
-  gamma.integral: get the conditional expectation of a convolved gamma RV
+  gammaIntegral: get the conditional expectation of a convolved gamma RV
+}
+\description{
+  Conditional expectation of one (out of two) gamma RVs given their sum & params
 }
 \usage{
-  gamma.integral(total, params, offset=50, minx=1)
+  gammaIntegral(total, params, offset=50, minx=1)
 }
 \arguments{
   \item{total}{

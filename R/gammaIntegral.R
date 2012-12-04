@@ -1,4 +1,4 @@
-gamma.integral <- function(total, params, offset=50, minx=1) { # {{{
+gammaIntegral <- function(total, params, offset=50, minx=1) {
 
   require('gsl') # for hyperg_1F1 in the conditional expectation of the signal
 
@@ -32,4 +32,4 @@ gamma.integral <- function(total, params, offset=50, minx=1) { # {{{
     }
   }
 
-} # }}}
+}

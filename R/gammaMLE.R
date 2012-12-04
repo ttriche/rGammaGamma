@@ -1,5 +1,5 @@
 ## fast approximation to the full Gamma MLE via Minka (2002) at MS Research
-gamma.mle <- function(x,w=NULL,niter=100,tol=0.1,minx=1) { 
+gammaMLE <- function(x,w=NULL,niter=100,tol=0.1,minx=1) { 
 
   if( is.null(w) ) w <- rep( 1, length(x) )
   meanlogx <- weighted.mean(log(pmax(x,minx)), w)
