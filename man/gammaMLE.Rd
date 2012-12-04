@@ -13,6 +13,18 @@
   \item{x}{
     A vector 
   }
+  \item{w}{
+    Weights
+  }
+  \item{niter}{
+    Maximum number of iterations
+  }
+  \item{tol}{
+    Maximum difference in parameters at convergence
+  }
+  \item{minx}{
+    Minimum permissible value for x (smaller values will be bumped to this)
+  }
 }
 \details{
   Not yet.
