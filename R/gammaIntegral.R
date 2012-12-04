@@ -3,7 +3,7 @@ gammaIntegral <- function(total, params, offset=50, minx=1) {
   require('gsl') # for hyperg_1F1 in the conditional expectation of the signal
 
   ## this bit is the most obvious "farm me out to C++" piece of all...
-  if(length(total) > 1) return(sapply(total, gamma.integral, params=params))
+  if(length(total) > 1) return(sapply(total, gammaIntegral, params=params))
   
   g = params[1]
   a = params[2]

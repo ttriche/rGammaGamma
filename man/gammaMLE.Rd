@@ -7,7 +7,7 @@
   Maximum likelihood estimator for the parameters of a gamma distribution
 }
 \usage{
-  gammaMLE(x)
+  gammaMLE(x, w = NULL, niter = 100, tol = 0.1, minx = 1)
 }
 \arguments{
   \item{x}{
