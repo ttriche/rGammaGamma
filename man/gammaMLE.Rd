@@ -7,7 +7,7 @@
   Maximum likelihood estimator for the parameters of a gamma distribution
 }
 \usage{
-  gammaMLE(x, w = NULL, niter = 100, tol = 0.1, minx = 1)
+  gammaMLE(x, w=NULL, niter=100, tol=0.1, minx=1)
 }
 \arguments{
   \item{x}{
@@ -26,6 +26,6 @@
 \examples{
   
   foo <- rgamma(100, 12, 10)
-  gammaMLE(foo)
+  gammaMLE(foo, w=NULL, niter=100, tol=0.1, minx=1)
 
 }
