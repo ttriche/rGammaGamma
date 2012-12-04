@@ -18,8 +18,8 @@
 \tabular{ll}{
 Package:  rGammaGamma
 Type:     Package
-Version:  0.9
-Date:     2011-01-27
+Version:  1.0.11
+Date:     2012-12-04
 License:  Artistic
 LazyLoad: yes
 }
